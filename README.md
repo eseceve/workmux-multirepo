@@ -6,7 +6,9 @@ Both `wmm` and `workmux-multirepo` are installed as executable commands. No shel
 
 ## Install
 
-Written in Go. Requires Git, tmux, and a workmux release with `add --headless --json` at runtime. The default interactive agent is Claude Code; the builder command and reviewer agent are configurable. Supported platforms: macOS and Linux.
+Written in Go. Requires Git, tmux, and workmux. Agents are launched by workmux using its configuration; wmm has no agent default of its own. Supported platforms: macOS and Linux.
+
+Wmm checks workmux compatibility automatically. It uses `add --headless --json` internally to provision worktrees and read their actual paths. You do not pass or configure these flags; an older incompatible workmux release needs an update.
 
 ```sh
 gh repo clone eseceve/workmux-multirepo
@@ -31,10 +33,6 @@ wmm init
 Edit the generated `wmm.toml` to choose short aliases:
 
 ```toml
-# Optional; these are the defaults.
-build_command = ["claude", "--add-dir", "{repo_paths}", "--", "{prompt}"]
-review_agent = "claude"
-
 [repos]
 oo = "./order-orchestrator"
 bff = "./marketplace-bff"
@@ -43,7 +41,13 @@ web = "./ai-funnel-webapp"
 
 Paths are relative to the configuration file. Every command accepts `--config /path/to/wmm.toml`; otherwise discovery searches the current directory and its parents. Add `.wmm/` to your workspace's ignore file if that directory itself is versioned.
 
-`build_command` is an argument array, not a shell snippet. Whole-argument placeholders are `{workspace}`, `{prompt}`, and `{repo_paths}` (expands to multiple arguments). This lets you use another agent executable and its directory-access flags. `review_agent` is a command understood by workmux, which handles its prompt injection. No model or permission-bypass flags are imposed, and no agent hooks are installed automatically.
+`wmm.toml` contains repository mappings only. Configure agents, models, panes, prefixes, hooks, and permissions in workmux:
+
+- The shared builder uses the global workmux configuration, with `.workmux.yaml` (or `.workmux.yml`) beside `wmm.toml` as its project configuration when present.
+- Each reviewer uses workmux's normal configuration resolution from its source repository, including global settings and that repository's project overrides.
+- Wmm passes prompts to workmux; it does not construct agent commands or parse/merge workmux configuration.
+
+The old `build_command` and `review_agent` keys are no longer accepted. Remove them from `wmm.toml` and put the corresponding settings in workmux. No model or permission-bypass flags are imposed, and no agent hooks are installed automatically.
 
 ## Build once across repositories
 
@@ -58,6 +62,7 @@ Workmux creates and provisions each worktree headlessly using its existing proje
 ```text
 .wmm/feat-checkout-<hash>/
 ├── manifest.json
+├── .git/  # internal coordination repository for workmux
 ├── BRIEF.md
 ├── build-prompt.md
 ├── oo  -> <workmux-created-worktree>
@@ -65,7 +70,9 @@ Workmux creates and provisions each worktree headlessly using its existing proje
 └── web -> <workmux-created-worktree>
 ```
 
-These repository entries are **symlinks**; workmux retains ownership of the real worktree locations. The default builder receives explicit directory access to those locations. Each repository keeps its own Git history and instructions.
+These repository entries are **symlinks**; workmux retains ownership of the real worktree locations. Each repository keeps its own Git history and instructions. Agent permissions still apply to the real paths: grant access through your agent/workmux configuration as needed, including mounts if using a sandbox. Wmm does not inject agent-specific directory-access flags.
+
+Workmux needs a Git repository to open an agent. On the first builder launch, wmm initializes a local coordination repository here with one empty commit and no remote. Code changes and commits belong in the individual worktrees, not this internal repository.
 
 One tmux session is created for the change, containing one builder window. From within tmux, wmm switches to that session; outside tmux, it prints an attach command. The builder receives the shared brief and is instructed to read each repo's instructions, coordinate contracts, validate the integration, and leave a handoff in `BRIEF.md`.
 
@@ -84,7 +91,7 @@ Without `--prompt`, the builder asks for the objective before editing. For an ex
 
 ## Review independently
 
-Exit the builder agent/window, then run:
+Close the builder window (including any remaining shell panes), then run:
 
 ```sh
 wmm review feat/checkout
@@ -99,9 +106,9 @@ wmm review feat/checkout --prepare-pr
 
 This drafts PR material; it does not authorize publishing or pushing. Ask the reviewer explicitly when ready to publish. Review summaries are written beside `BRIEF.md`.
 
-`review` refuses to start while the managed builder window is open. `start` refuses to reopen the builder while managed review windows are open. This is a terminal lifecycle guard, not an OS-level file lock against unrelated agents/editors. Keep managed window names intact. Repeating `review` reuses existing windows and does not inject a new prompt into an already-running agent; choose `--prepare-pr` when first opening it.
+`review` refuses to start while the managed builder window is open. `start` refuses to reopen the builder while managed review windows are open. This is a terminal lifecycle guard, not an OS-level file lock against unrelated agents/editors. Roles are stored in tmux metadata, so custom prefixes and window renames preserve these guards. Repeating `review` reuses existing windows and does not inject a new prompt into an already-running agent; choose `--prepare-pr` when first opening it.
 
-Review windows use a generated workmux layout with an agent and a shell. Global workmux settings still apply; repository-specific pane layouts are replaced for the review phase. The shared builder is managed directly through tmux and does not appear as a workmux worktree itself.
+Both builder and reviewers are opened by workmux, using its agent and pane configuration. Wmm only fixes the terminal topology: the tmux backend, window mode, a shared parent session, and target names (`build`, `review-<alias>`). Workmux's window prefix still applies. A workmux `windows:` layout requires session mode and is incompatible with this grouped-window workflow; wmm reports workmux's error rather than replacing that layout.
 
 ## Inspect progress
 
@@ -119,7 +126,7 @@ Output uses a compact [TOON](https://toonformat.dev/) subset. Progress/diagnosti
 
 Operations are serialized per workspace. A failure never deletes work already created. If provisioning stops, fix the error and repeat the original command; completed repositories are preserved and skipped. If a setup hook fails **after creating its Git worktree**, wmm refuses to call it ready or silently adopt it: inspect the incomplete worktree and preserve any work before removing it and retrying.
 
-There is no group removal command in this first release. Worktrees remain compatible with ordinary workmux commands run from their real directories. The shared workspace and manifest are retained for inspection. No commits, pushes, merges, or real agent API calls are performed by wmm itself; interactive agents act under their own permission settings.
+There is no group removal command in this first release. Worktrees remain compatible with ordinary workmux commands run from their real directories. The shared workspace and manifest are retained for inspection. Apart from the internal coordination repository's empty initialization commit, wmm does not commit, push, merge, or call agent APIs itself; interactive agents act under their own permission settings.
 
 ## Development
 

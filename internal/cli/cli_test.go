@@ -127,6 +127,16 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 					delete(f.windows, name)
 				}
 			}
+		case "set-window-option":
+			if len(args) > 5 && args[4] == "@wmm_role" {
+				for name, id := range f.windows {
+					if id == args[3] {
+						delete(f.windows, name)
+						f.windows[args[5]] = id
+						break
+					}
+				}
+			}
 		}
 		return "", nil
 	}
@@ -336,11 +346,13 @@ func TestBuilderSingleWindow(t *testing.T) {
 	if exists(filepath.Join(f.root, "SHOULD_NOT_EXIST")) {
 		t.Fatal("shell expansion")
 	}
+	f.mustCLI("start", "feat/shared", "api", "web")
+	if f.count("workmux", "open") != 1 {
+		t.Fatal("builder was not delegated/idempotent")
+	}
 	for _, args := range f.calls {
-		if args[0] == "tmux" && args[1] == "new-session" {
-			if !strings.Contains(args[len(args)-1], "--add-dir") {
-				t.Fatal(args)
-			}
+		if slices.Contains(args, "--agent") || slices.Contains(args, "claude") {
+			t.Fatal(args)
 		}
 	}
 }
@@ -397,15 +409,47 @@ func TestLockExcludesConcurrentMutation(t *testing.T) {
 		t.Fatal(code, out)
 	}
 }
-func TestShellQuoteRoundTrip(t *testing.T) {
-	input := []string{"spaces here", "quote'and\"double", "$(touch /tmp/do-not-create-wmm)", "line\nbreak"}
-	command := "printf '%s\\0' " + shellJoin(input)
-	output, err := exec.Command("sh", "-c", command).Output()
-	if err != nil {
+func TestRemovedAgentConfigurationExplainsMigration(t *testing.T) {
+	f := newFixture(t)
+	for _, setting := range []string{"build_command = ['claude']", "review_agent = 'claude'"} {
+		if err := os.WriteFile(filepath.Join(f.root, "wmm.toml"), []byte(setting+"\n[repos]\napi = './api repo'\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		code, out := f.cli("start", "feat/shared", "api")
+		if code != 2 || !strings.Contains(out, "no longer supported") || !strings.Contains(out, ".workmux.yaml") || len(f.calls) != 0 {
+			t.Fatal(code, out)
+		}
+	}
+}
+
+func TestDelegationPreservesOriginalWorkmuxConfig(t *testing.T) {
+	f := newFixture(t)
+	path := filepath.Join(f.root, ".workmux.yml")
+	data := []byte("agent: custom-agent\nwindow_prefix: custom-\n")
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if string(output) != strings.Join(input, "\x00")+"\x00" {
-		t.Fatal(string(output))
+	f.mustCLI("start", "feat/shared", "api", "web")
+	delete(f.windows, "build")
+	f.mustCLI("review", "feat/shared")
+	for _, args := range f.calls {
+		if len(args) < 2 || args[0] != "workmux" || args[1] != "open" {
+			continue
+		}
+		if flagValue(args, "--target-name") == "build" {
+			if flagValue(args, "--config") != path {
+				t.Fatal(args)
+			}
+		} else if slices.Contains(args, "--config") {
+			t.Fatal("review config overridden", args)
+		}
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(data, after) {
+		t.Fatal("workmux config changed")
+	}
+	if exists(filepath.Join(workspace(f.config(), "feat/shared"), "review.workmux.yaml")) {
+		t.Fatal("generated duplicate config")
 	}
 }
 func TestHelpAndVersionWithoutConfig(t *testing.T) {

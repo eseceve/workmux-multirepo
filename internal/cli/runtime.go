@@ -122,15 +122,6 @@ func writeJSON(path string, value any) error {
 	}
 	return os.Rename(temp, path)
 }
-func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
-func shellJoin(args []string) string {
-	q := make([]string, len(args))
-	for i, s := range args {
-		q[i] = shellQuote(s)
-	}
-	return strings.Join(q, " ")
-}
-
 func (a *app) findCommand(name string) (string, error) {
 	if a.lookup != nil {
 		return a.lookup(name)

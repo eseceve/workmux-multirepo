@@ -2,10 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,57 +29,113 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 	if err = os.Mkdir(bin, 0755); err != nil {
 		t.Fatal(err)
 	}
-	agent := filepath.Join(bin, "claude")
+	agent := filepath.Join(bin, "codex")
 	cmd := exec.Command("go", "build", "-o", agent, "./testdata/helper")
 	if data, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build test helper: %v\n%s", err, data)
 	}
-	if err = os.Symlink(agent, filepath.Join(bin, "tmux")); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"tmux", "opencode", "gemini"} {
+		if err = os.Symlink(agent, filepath.Join(bin, name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	socket := fmt.Sprintf("wmm-smoke-%d", os.Getpid())
 	t.Setenv("WMM_TEST_SOCKET", socket)
 	t.Setenv("WMM_TEST_REAL_TMUX", realTmux)
+	t.Setenv("WMM_TEST_AGENT_LOG", bin)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(f.root, "config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(f.root, "state"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(f.root, "cache"))
 	t.Setenv("TMUX", "")
 	t.Setenv("TMUX_PANE", "")
-	if err = os.MkdirAll(filepath.Join(f.root, "config", "workmux"), 0755); err != nil {
-		t.Fatal(err)
+	write := func(path, data string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err = os.WriteFile(filepath.Join(f.root, "config", "workmux", "config.yaml"), []byte("nerdfont: false\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	write(filepath.Join(f.root, "config", "workmux", "config.yaml"), "nerdfont: false\nagent: "+quote(agent)+"\nwindow_prefix: custom-\npanes:\n  - command: <agent>\n  - split: horizontal\n")
+	write(filepath.Join(f.repos["web"], ".workmux.yaml"), "agent: "+quote(filepath.Join(bin, "gemini"))+"\nwindow_prefix: web-\npanes:\n  - command: <agent>\n  - split: horizontal\n  - split: vertical\n")
 	t.Cleanup(func() { exec.Command(realTmux, "-L", socket, "kill-server").Run() })
-	f.a.run = execute
-	f.a.lookup = nil
+	f.a.run, f.a.lookup = execute, nil
 	f.mustCLI("start", "feat/shared", "api", "web", "--prompt", "Smoke test only")
 	m := f.manifest()
-	time.Sleep(300 * time.Millisecond)
-	if active := f.a.windows(m.Session); len(active) != 1 || active["build"] == "" {
-		t.Fatal(active)
+	dir := workspace(f.config(), m.Branch)
+	checkAgent := func(name, cwd string) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			entries, _ := filepath.Glob(filepath.Join(bin, "invocation-*"))
+			for _, entry := range entries {
+				data, _ := os.ReadFile(entry)
+				var call struct {
+					Args []string
+					Cwd  string
+				}
+				if json.Unmarshal(data, &call) == nil && len(call.Args) > 1 && filepath.Base(call.Args[0]) == name && call.Cwd == cwd {
+					return
+				}
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		for _, id := range f.a.windows(m.Session) {
+			out, _ := execute("", "tmux", "capture-pane", "-p", "-t", id)
+			t.Log(out)
+		}
+		t.Fatalf("workmux did not launch %s with a prompt in %s", name, cwd)
 	}
-	// Keep the isolated server alive during the transition to reviews.
+	checkWindow := func(role, name string, panes int) {
+		t.Helper()
+		id := f.a.windows(m.Session)[role]
+		names, err := execute("", "tmux", "display-message", "-p", "-t", id, "#{window_name}:#{window_panes}")
+		if id == "" || err != nil || strings.TrimSpace(names) != fmt.Sprintf("%s:%d", name, panes) {
+			t.Fatalf("window %s: %q %v", role, names, err)
+		}
+	}
+	checkAgent("codex", dir)
+	checkWindow("build", "custom-build", 2)
+	f.mustCLI("start", "feat/shared", "api", "web")
+	// Keep the isolated server alive during the transitions.
 	if _, err = execute("", "tmux", "new-window", "-d", "-t", m.Session+":", "-n", "control"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = execute("", "tmux", "kill-window", "-t", f.a.windows(m.Session)["build"]); err != nil {
+	closeBuilder := func() {
+		t.Helper()
+		if _, err := execute("", "tmux", "kill-window", "-t", f.a.windows(m.Session)["build"]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	closeBuilder()
+	// An existing workspace workmux config overrides global settings unchanged.
+	write(filepath.Join(f.root, ".workmux.yaml"), "agent: "+quote(filepath.Join(bin, "opencode"))+"\nwindow_prefix: shared-\n")
+	f.mustCLI("start", "feat/shared", "api", "web")
+	checkAgent("opencode", dir)
+	checkWindow("build", "shared-build", 2)
+	// Renaming must not disable lifecycle guards.
+	if _, err = execute("", "tmux", "rename-window", "-t", f.a.windows(m.Session)["build"], "renamed"); err != nil {
 		t.Fatal(err)
 	}
-	f.mustCLI("review", "feat/shared", "--prepare-pr")
-	time.Sleep(300 * time.Millisecond)
-	active := f.a.windows(m.Session)
-	if active["wmm-review-api"] == "" || active["wmm-review-web"] == "" {
-		t.Fatal(active)
+	if code, _ := f.cli("review", "feat/shared"); code != 1 {
+		t.Fatal("renamed builder bypassed guard")
 	}
+	closeBuilder()
+	f.mustCLI("review", "feat/shared", "--prepare-pr")
+	checkAgent("codex", m.Repos[0].Path)
+	checkAgent("gemini", m.Repos[1].Path)
+	checkWindow("review-api", "custom-review-api", 2)
+	checkWindow("review-web", "web-review-web", 3)
 	f.mustCLI("review", "feat/shared")
 	if len(f.a.windows(m.Session)) != 3 {
 		t.Fatal("duplicate review windows")
 	}
+	if code, _ := f.cli("start", "feat/shared", "api", "web"); code != 1 {
+		t.Fatal("reviewers bypassed guard")
+	}
 	f.mustCLI("status", "feat/shared", "--fields", "repo,state,commits,path")
-	// Verify the real agent processes run in their individual worktrees.
 	out, err := execute("", "tmux", "list-panes", "-s", "-t", m.Session, "-F", "#{pane_current_path}")
 	if err != nil {
 		t.Fatal(err)
@@ -87,5 +145,5 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 			t.Fatalf("missing pane for %s: %s", r.Alias, out)
 		}
 	}
-	t.Log("real headless provisioning, shared builder, independent reviewers, and idempotent reopening passed")
+	t.Log("native global/project agents, pane layouts, prefixes, prompts, lifecycle guards, and idempotent reopening passed")
 }

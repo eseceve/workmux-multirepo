@@ -10,12 +10,9 @@ import (
 )
 
 var aliasPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
-var defaultBuild = []string{"claude", "--add-dir", "{repo_paths}", "--", "{prompt}"}
 
 type config struct {
 	Repos             map[string]string `toml:"repos"`
-	BuildCommand      []string          `toml:"build_command"`
-	ReviewAgent       string            `toml:"review_agent"`
 	Path, Root, State string            `toml:"-"`
 }
 
@@ -43,9 +40,17 @@ func (a *app) discover(explicit string) (*config, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &config{BuildCommand: append([]string{}, defaultBuild...), ReviewAgent: "claude"}
+	var legacy map[string]any
+	if err = toml.Unmarshal(data, &legacy); err == nil {
+		for _, key := range []string{"build_command", "review_agent"} {
+			if _, ok := legacy[key]; ok {
+				return nil, usage(key+" is no longer supported in wmm.toml.", "Remove it and configure agent/panes in workmux's global config or .workmux.yaml. Wmm delegates agent launch to workmux.")
+			}
+		}
+	}
+	c := &config{}
 	if err = toml.NewDecoder(strings.NewReader(string(data))).DisallowUnknownFields().Decode(c); err != nil {
-		return nil, usage("Invalid wmm.toml: "+err.Error(), "Use repos, build_command, and review_agent; see wmm init --help.")
+		return nil, usage("Invalid wmm.toml: "+err.Error(), "Use only [repos] with aliases and paths; configure agents and terminal layouts in workmux.")
 	}
 	c.Path = filepath.Clean(path)
 	c.Root = filepath.Dir(c.Path)
@@ -71,17 +76,6 @@ func (a *app) discover(explicit string) (*config, error) {
 			path = real
 		}
 		c.Repos[name] = filepath.Clean(path)
-	}
-	if len(c.BuildCommand) == 0 || c.BuildCommand[0] == "" {
-		return nil, usage("build_command must be a nonempty argument array.", "See the README configuration example.")
-	}
-	for _, arg := range c.BuildCommand {
-		if strings.ContainsAny(arg, "{}") && arg != "{workspace}" && arg != "{repo_paths}" && arg != "{prompt}" {
-			return nil, usage("Unknown command placeholder: "+arg, "Use whole arguments {workspace}, {repo_paths}, or {prompt}.")
-		}
-	}
-	if strings.TrimSpace(c.ReviewAgent) == "" {
-		return nil, usage("review_agent cannot be empty.", "Choose an agent command supported by workmux.")
 	}
 	return c, nil
 }
@@ -120,7 +114,7 @@ func (a *app) initialize(o options) error {
 	if !o.dryRun {
 		var b strings.Builder
 		b.WriteString("# Paths are relative to this file. Rename keys to choose shorter aliases.\n")
-		b.WriteString("# build_command = [\"claude\", \"--add-dir\", \"{repo_paths}\", \"--\", \"{prompt}\"]\n# review_agent = \"claude\"\n\n[repos]\n")
+		b.WriteString("# Configure agents and panes in workmux, not here.\n\n[repos]\n")
 		for _, name := range keys(repos) {
 			fmt.Fprintf(&b, "%s = %s\n", quote(name), quote(repos[name]))
 		}

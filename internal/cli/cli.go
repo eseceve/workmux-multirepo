@@ -88,7 +88,7 @@ func (a *app) dispatch(args []string) error {
 		a.scalar("prepare_pr", o.preparePR)
 		return nil
 	}
-	if err = a.prerequisites(c, false); err != nil {
+	if err = a.prerequisites(c); err != nil {
 		return err
 	}
 	if err = a.openReviews(c, m, o.preparePR); err != nil {
@@ -141,7 +141,7 @@ func (a *app) start(c *config, o options) error {
 		a.table("repos", []string{"repo", "base", "handle"}, rows)
 		return nil
 	}
-	if err = a.prerequisites(c, !o.noOpen); err != nil {
+	if err = a.prerequisites(c); err != nil {
 		return err
 	}
 	if !existing {

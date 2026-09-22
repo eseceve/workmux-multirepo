@@ -1,0 +1,26 @@
+version: 2
+project_name: workmux-multirepo
+builds:
+  - id: wmm
+    main: ./cmd/wmm
+    binary: wmm
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/eseceve/workmux-multirepo/internal/cli.Version={{ .Version }}
+  - id: workmux-multirepo
+    main: ./cmd/workmux-multirepo
+    binary: workmux-multirepo
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/eseceve/workmux-multirepo/internal/cli.Version={{ .Version }}
+archives:
+  - formats: [tar.gz]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+checksum:
+  name_template: checksums.txt
+release:
+  prerelease: auto

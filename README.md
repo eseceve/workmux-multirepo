@@ -6,16 +6,18 @@ Both `wmm` and `workmux-multirepo` are installed as executable commands. No shel
 
 ## Install
 
-Requires Python 3.11+, Git, tmux, and a workmux release with `add --headless --json`. The default interactive agent is Claude Code; the builder command and reviewer agent are configurable.
+Written in Go. Requires Git, tmux, and a workmux release with `add --headless --json` at runtime. The default interactive agent is Claude Code; the builder command and reviewer agent are configurable. Supported platforms: macOS and Linux.
 
 ```sh
-uv tool install 'git+ssh://git@github.com/eseceve/workmux-multirepo.git'
+gh repo clone eseceve/workmux-multirepo
+cd workmux-multirepo
+go install ./cmd/wmm ./cmd/workmux-multirepo
 ```
 
-The repository is currently private, so installation requires GitHub SSH access. For development:
+Building requires Go 1.24+. The repository is currently private, so cloning requires GitHub access. Ensure Go's binary directory is on your PATH, or choose an existing PATH directory:
 
 ```sh
-uv tool install --editable .
+GOBIN="$HOME/.local/bin" go install ./cmd/wmm ./cmd/workmux-multirepo
 ```
 
 ## Configure a workspace
@@ -122,11 +124,16 @@ There is no group removal command in this first release. Worktrees remain compat
 ## Development
 
 ```sh
-python -m pip install -e .
-python -m unittest discover -s tests -v
+make build   # bin/wmm and bin/workmux-multirepo
+make test    # Go tests with the race detector and coverage
+make lint    # go vet
 
 # Opt-in integration test: actual workmux/tmux, local remotes, inert fake agents.
-python tests/smoke_workmux.py
+make smoke
 ```
 
 Unit/integration-style tests use real temporary Git repositories with simulated terminal processes. The opt-in smoke test isolates its tmux server and XDG state and never invokes an LLM.
+
+The implementation follows the thin-wrapper approach used by [pier](https://github.com/eseceve/pier): Cobra commands, a replaceable process runner for tests, and GoReleaser configuration for macOS/Linux binaries. No Python or Node runtime is required.
+
+GoReleaser can build local archives with `goreleaser release --snapshot --clean`. Publishing a release remains an explicit maintainer action.

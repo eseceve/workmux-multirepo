@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -250,17 +249,4 @@ func (a *app) provision(c *config, m *manifest) error {
 		m.Phase = "ready"
 	}
 	return save(c, m)
-}
-func brief(c *config, m *manifest) (string, error) {
-	path := filepath.Join(workspace(c, m.Branch), "BRIEF.md")
-	if exists(path) {
-		return path, nil
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n\n## Objective\n\n%s\n\n## Repositories\n\n", m.Branch, m.Objective)
-	for _, r := range m.Repos {
-		fmt.Fprintf(&b, "- %s: %s (base %s at %s)\n", r.Alias, r.Path, r.Base, r.BaseCommit)
-	}
-	b.WriteString("\n## Contracts and implementation handoff\n\nRecord cross-repository contracts, verification, and remaining questions here before review.\n")
-	return path, os.WriteFile(path, []byte(b.String()), 0644)
 }

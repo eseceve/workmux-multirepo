@@ -120,9 +120,6 @@ func (a *app) start(c *config, o options) error {
 		if !slices.Equal(o.repos, aliases) {
 			return fail("This change has a different repository selection.", "Use the original aliases in the same order, or choose a new branch.")
 		}
-		if o.hasPrompt && o.prompt != m.Objective {
-			return fail("This change already has a different objective.", "Update BRIEF.md; omit --prompt when reopening.")
-		}
 		records = m.Repos
 	} else {
 		records, err = a.plan(c, o.branch, o.repos)
@@ -151,11 +148,7 @@ func (a *app) start(c *config, o options) error {
 		if err = os.Mkdir(dir, 0755); err != nil {
 			return err
 		}
-		objective := o.prompt
-		if !o.hasPrompt {
-			objective = "Ask the user to describe the intended change before editing."
-		}
-		m = &manifest{Version: 1, Branch: o.branch, Phase: "provisioning", Repos: records, Objective: objective, Session: sessionName(c, o.branch)}
+		m = &manifest{Version: 1, Branch: o.branch, Phase: "provisioning", Repos: records, Objective: o.prompt, Session: sessionName(c, o.branch)}
 		if err = save(c, m); err != nil {
 			return err
 		}
@@ -164,11 +157,9 @@ func (a *app) start(c *config, o options) error {
 	if err = a.provision(c, m); err != nil {
 		return err
 	}
-	if _, err = brief(c, m); err != nil {
-		return err
-	}
+
 	if !o.noOpen {
-		if err = a.openBuilder(c, m); err != nil {
+		if err = a.openBuilder(c, m, o.prompt); err != nil {
 			return err
 		}
 	}

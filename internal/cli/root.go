@@ -11,10 +11,10 @@ import (
 var Version = "dev"
 
 type options struct {
-	command, config, branch, prompt, fields    string
-	repos                                      []string
-	dryRun, noOpen, preparePR, hasPrompt, help bool
-	helpText                                   string
+	command, config, branch, prompt, fields string
+	repos                                   []string
+	dryRun, noOpen, preparePR, help         bool
+	helpText                                string
 }
 
 func newRoot(o *options) *cobra.Command {
@@ -35,13 +35,12 @@ func newRoot(o *options) *cobra.Command {
 			o.command = "start"
 			o.branch = args[0]
 			o.repos = args[1:]
-			o.hasPrompt = cmd.Flags().Changed("prompt")
 			return nil
 		}}
-	startCmd.Flags().StringVar(&o.prompt, "prompt", "", "shared objective (default: ask in the agent session)")
+	startCmd.Flags().StringVar(&o.prompt, "prompt", "", "optional initial prompt (default: none)")
 	startCmd.Flags().BoolVar(&o.dryRun, "dry-run", false, "show plan without fetching, creating, or launching")
-	startCmd.Flags().BoolVar(&o.noOpen, "no-open", false, "provision worktrees and context without launching an agent")
-	reviewCmd := &cobra.Command{Use: "review <branch>", Short: "Open an independent reviewer per repository", Args: cobra.ExactArgs(1),
+	startCmd.Flags().BoolVar(&o.noOpen, "no-open", false, "provision worktrees without opening a window")
+	reviewCmd := &cobra.Command{Use: "review <branch>", Short: "Open reviewer panes per repository in one tmux window", Args: cobra.ExactArgs(1),
 		Example: "  wmm review feat/change\n  wmm review feat/change --prepare-pr --dry-run",
 		RunE:    func(cmd *cobra.Command, args []string) error { o.command = "review"; o.branch = args[0]; return nil }}
 	reviewCmd.Flags().BoolVar(&o.preparePR, "prepare-pr", false, "draft PR text locally; never publish automatically")

@@ -62,8 +62,34 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 	write(filepath.Join(f.repos["web"], ".workmux.yaml"), "agent: "+quote(filepath.Join(bin, "gemini"))+"\nwindow_prefix: web-\npanes:\n  - command: <agent>\n  - split: horizontal\n  - split: vertical\n")
 	t.Cleanup(func() { exec.Command(realTmux, "-L", socket, "kill-server").Run() })
 	f.a.run, f.a.lookup = execute, nil
+	if _, err = execute("", "tmux", "new-session", "-d", "-s", "current", "-n", "control"); err != nil {
+		t.Fatal(err)
+	}
+	tmuxEnv, err := execute("", "tmux", "display-message", "-p", "-t", "current", "#{socket_path},#{pid},#{session_id}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMUX", strings.TrimSpace(tmuxEnv))
+
+	// Fresh workmux installs default to shell/clear panes, which cannot receive
+	// wmm's prompt. Configuring an agent pane must let the same start recover.
+	globalConfig := filepath.Join(f.root, "config", "workmux", "config.yaml")
+	configured, err := os.ReadFile(globalConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(globalConfig, "nerdfont: false\n")
+	code, _ := f.cli("start", "feat/shared", "api", "web", "--prompt", "Smoke test only")
+	if code != 1 || !strings.Contains(f.diagnostic.String(), "no pane is configured to run the agent") {
+		t.Fatalf("expected missing agent pane: code=%d diagnostics=%s", code, f.diagnostic.String())
+	}
+	t.Log("reproduced: prompt provided, but no pane is configured to run the agent")
+	write(globalConfig, string(configured))
 	f.mustCLI("start", "feat/shared", "api", "web", "--prompt", "Smoke test only")
 	m := f.manifest()
+	if m.Session != "current" {
+		t.Fatalf("unexpected session %s", m.Session)
+	}
 	dir := workspace(f.config(), m.Branch)
 	checkAgent := func(name, cwd string) {
 		t.Helper()
@@ -76,7 +102,7 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 					Args []string
 					Cwd  string
 				}
-				if json.Unmarshal(data, &call) == nil && len(call.Args) > 1 && filepath.Base(call.Args[0]) == name && call.Cwd == cwd {
+				if json.Unmarshal(data, &call) == nil && len(call.Args) >= 1 && filepath.Base(call.Args[0]) == name && call.Cwd == cwd {
 					return
 				}
 			}
@@ -86,7 +112,7 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 			out, _ := execute("", "tmux", "capture-pane", "-p", "-t", id)
 			t.Log(out)
 		}
-		t.Fatalf("workmux did not launch %s with a prompt in %s", name, cwd)
+		t.Fatalf("workmux did not launch %s in %s", name, cwd)
 	}
 	checkWindow := func(role, name string, panes int) {
 		t.Helper()
@@ -97,12 +123,8 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 		}
 	}
 	checkAgent("codex", dir)
-	checkWindow("build", "custom-build", 2)
+	checkWindow("build", "custom-build-"+digest(dir, 8), 2)
 	f.mustCLI("start", "feat/shared", "api", "web")
-	// Keep the isolated server alive during the transitions.
-	if _, err = execute("", "tmux", "new-window", "-d", "-t", m.Session+":", "-n", "control"); err != nil {
-		t.Fatal(err)
-	}
 	closeBuilder := func() {
 		t.Helper()
 		if _, err := execute("", "tmux", "kill-window", "-t", f.a.windows(m.Session)["build"]); err != nil {
@@ -114,26 +136,52 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 	write(filepath.Join(f.root, ".workmux.yaml"), "agent: "+quote(filepath.Join(bin, "opencode"))+"\nwindow_prefix: shared-\n")
 	f.mustCLI("start", "feat/shared", "api", "web")
 	checkAgent("opencode", dir)
-	checkWindow("build", "shared-build", 2)
+	checkWindow("build", "shared-build-"+digest(dir, 8), 2)
 	// Renaming must not disable lifecycle guards.
 	if _, err = execute("", "tmux", "rename-window", "-t", f.a.windows(m.Session)["build"], "renamed"); err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := f.cli("review", "feat/shared"); code != 1 {
-		t.Fatal("renamed builder bypassed guard")
+	builder := f.a.windows(m.Session)["build"]
+	pane, err := execute("", "tmux", "display-message", "-p", "-t", builder, "#{pane_id}")
+	if err != nil {
+		t.Fatal(err)
 	}
-	closeBuilder()
-	f.mustCLI("review", "feat/shared", "--prepare-pr")
+	t.Setenv("TMUX_PANE", strings.TrimSpace(pane))
+	f.mustCLI("review", "feat/shared")
 	checkAgent("codex", m.Repos[0].Path)
 	checkAgent("gemini", m.Repos[1].Path)
-	checkWindow("review-api", "custom-review-api", 2)
-	checkWindow("review-web", "web-review-web", 3)
+	checkWindow("review", "renamed", 7)
+	if f.a.windows(m.Session)["review"] != builder {
+		t.Fatal("did not reuse builder")
+	}
 	f.mustCLI("review", "feat/shared")
-	if len(f.a.windows(m.Session)) != 3 {
+	if len(f.a.windows(m.Session)) != 2 {
 		t.Fatal("duplicate review windows")
 	}
 	if code, _ := f.cli("start", "feat/shared", "api", "web"); code != 1 {
 		t.Fatal("reviewers bypassed guard")
+	}
+	// From a different window, create one separate review window while keeping
+	// the implementation window and all of its processes alive.
+	control, err := execute("", "tmux", "display-message", "-p", "-t", "current:control", "#{pane_id}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMUX_PANE", strings.TrimSpace(control))
+	if _, err = execute("", "tmux", "kill-window", "-t", builder); err != nil {
+		t.Fatal(err)
+	}
+	f.mustCLI("start", "feat/shared", "api", "web")
+	builder = f.a.windows(m.Session)["build"]
+	f.mustCLI("review", "feat/shared")
+	review := f.a.windows(m.Session)["review"]
+	if review == "" || review == builder || f.a.windows(m.Session)["build"] != builder || len(f.a.windows(m.Session)) != 3 {
+		t.Fatal("review from another window did not create a separate group")
+	}
+	checkWindow("review", "custom-review-api-"+digest(dir, 8), 5)
+	f.mustCLI("review", "feat/shared")
+	if len(f.a.windows(m.Session)) != 3 {
+		t.Fatal("duplicate grouped reviews")
 	}
 	f.mustCLI("status", "feat/shared", "--fields", "repo,state,commits,path")
 	out, err := execute("", "tmux", "list-panes", "-s", "-t", m.Session, "-F", "#{pane_current_path}")
@@ -143,6 +191,15 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 	for _, r := range m.Repos {
 		if !bytes.Contains([]byte(out), []byte(r.Path)) {
 			t.Fatalf("missing pane for %s: %s", r.Alias, out)
+		}
+	}
+	sessions, err := execute("", "tmux", "list-sessions", "-F", "#{session_name}")
+	if err != nil || strings.TrimSpace(sessions) != "current" {
+		t.Fatalf("unexpected sessions: %q %v", sessions, err)
+	}
+	for _, name := range []string{"BRIEF.md", "build-prompt.md", "review-api-prompt.md", "review-web-prompt.md"} {
+		if exists(filepath.Join(dir, name)) {
+			t.Errorf("generated %s", name)
 		}
 	}
 	t.Log("native global/project agents, pane layouts, prefixes, prompts, lifecycle guards, and idempotent reopening passed")

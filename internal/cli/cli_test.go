@@ -22,6 +22,10 @@ type fixture struct {
 	repos           map[string]string
 	calls           [][]string
 	windows         map[string]string
+	owners          map[string]string
+	panes           map[string]string
+	paneRepos       map[string]string
+	currentWindow   string
 	nextWindow      int
 	failAlias       string
 	failAfterCreate bool
@@ -39,11 +43,13 @@ func gitTest(t *testing.T, cwd string, args ...string) string {
 }
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	t.Setenv("TMUX", "")
+	t.Setenv("TMUX_PANE", "")
 	root, err := canonical(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{t: t, root: root, repos: map[string]string{}, windows: map[string]string{}}
+	f := &fixture{t: t, root: root, repos: map[string]string{}, windows: map[string]string{}, owners: map[string]string{}, panes: map[string]string{}, paneRepos: map[string]string{}}
 	for _, item := range []struct{ name, base string }{{"api", "release"}, {"web", "develop"}} {
 		repo := filepath.Join(root, item.name+" repo")
 		remote := filepath.Join(root, item.name+".git")
@@ -103,17 +109,51 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 	if len(args) >= 2 && args[0] == "workmux" && args[1] == "open" {
 		f.nextWindow++
 		f.windows["wmm-"+flagValue(args, "--target-name")] = fmt.Sprintf("@%d", f.nextWindow)
+		f.panes[fmt.Sprintf("%%%d", f.nextWindow)] = fmt.Sprintf("@%d", f.nextWindow)
 		return "", nil
 	}
 	if len(args) >= 2 && args[0] == "tmux" {
 		switch args[1] {
+		case "display-message":
+			if args[len(args)-1] == "#{window_id}" {
+				return f.currentWindow, nil
+			}
+			return "current", nil
+		case "list-panes":
+			var out strings.Builder
+			for _, pane := range keys(f.panes) {
+				if f.panes[pane] == flagValue(args, "-t") {
+					fmt.Fprintf(&out, "%s\t%s\n", pane, f.paneRepos[pane])
+				}
+			}
+			return out.String(), nil
+		case "set-option":
+			f.paneRepos[flagValue(args, "-t")] = args[len(args)-1]
+		case "join-pane":
+			pane := flagValue(args, "-s")
+			old := f.panes[pane]
+			f.panes[pane] = flagValue(args, "-t")
+			remaining := false
+			for _, window := range f.panes {
+				if window == old {
+					remaining = true
+				}
+			}
+			if !remaining {
+				for name, id := range f.windows {
+					if id == old {
+						delete(f.windows, name)
+					}
+				}
+			}
+
 		case "list-windows":
 			if len(f.windows) == 0 {
 				return "", errors.New("no session")
 			}
 			var out strings.Builder
 			for _, name := range keys(f.windows) {
-				fmt.Fprintf(&out, "%s\t%s\n", f.windows[name], name)
+				fmt.Fprintf(&out, "%s\t%s\t%s\t%s\n", f.windows[name], name, name, f.owners[f.windows[name]])
 			}
 			return out.String(), nil
 		case "new-session", "new-window":
@@ -128,6 +168,9 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 				}
 			}
 		case "set-window-option":
+			if len(args) > 5 && args[4] == "@wmm_workspace" {
+				f.owners[args[3]] = args[5]
+			}
 			if len(args) > 5 && args[4] == "@wmm_role" {
 				for name, id := range f.windows {
 					if id == args[3] {
@@ -308,31 +351,29 @@ func TestStatusTracksCommitsAndUntrackedFiles(t *testing.T) {
 		t.Fatal(out)
 	}
 }
-func TestReviewGuardAndIdempotentWindows(t *testing.T) {
+func TestReviewGroupedAndIdempotentWindows(t *testing.T) {
 	f := newFixture(t)
 	f.start()
-	f.windows["build"] = "@1"
-	if code, _ := f.cli("review", "feat/shared"); code != 1 || f.count("workmux", "open") != 0 {
-		t.Fatal("review bypassed builder")
-	}
-	delete(f.windows, "build")
+	f.windows["build"] = "@99"
 	f.mustCLI("review", "feat/shared", "--prepare-pr")
 	f.mustCLI("review", "feat/shared", "--prepare-pr")
 	if f.count("workmux", "open") != 2 || len(f.windows) != 2 {
 		t.Fatal(f.windows)
 	}
-	data, err := os.ReadFile(filepath.Join(workspace(f.config(), "feat/shared"), "review-api-prompt.md"))
-	if err != nil {
-		t.Fatal(err)
+	for _, args := range f.calls {
+		if len(args) > 1 && args[0] == "workmux" && args[1] == "open" {
+			prompt := flagValue(args, "--prompt")
+			if !strings.Contains(prompt, "Do not push or publish") || !strings.Contains(prompt, "staged, unstaged, and untracked") {
+				t.Fatal(args)
+			}
+		}
 	}
-	if !strings.Contains(string(data), "Do not push or publish") || !strings.Contains(string(data), "staged, unstaged, and untracked") {
-		t.Fatal(string(data))
-	}
+
 }
 func TestBuilderRefusesLiveReviewers(t *testing.T) {
 	f := newFixture(t)
 	f.start()
-	f.windows["wmm-review-api"] = "@1"
+	f.windows["review-api"] = "@1"
 	if code, _ := f.cli("start", "feat/shared", "api", "web"); code != 1 {
 		t.Fatal(code)
 	}
@@ -436,7 +477,7 @@ func TestDelegationPreservesOriginalWorkmuxConfig(t *testing.T) {
 		if len(args) < 2 || args[0] != "workmux" || args[1] != "open" {
 			continue
 		}
-		if flagValue(args, "--target-name") == "build" {
+		if strings.HasPrefix(flagValue(args, "--target-name"), "build-") {
 			if flagValue(args, "--config") != path {
 				t.Fatal(args)
 			}
@@ -475,5 +516,110 @@ func TestReopenRepairsMissingWorkspaceLink(t *testing.T) {
 	}
 	if f.count("workmux", "add") != 2 {
 		t.Fatal("recreated existing worktrees")
+	}
+}
+
+func TestCurrentSessionWithoutGeneratedContext(t *testing.T) {
+	f := newFixture(t)
+	t.Setenv("TMUX", "test,1,0")
+	f.windows["shell"] = "@0"
+	original := f.a.run
+	f.a.run = func(dir string, args ...string) (string, error) {
+		if slices.Equal(args, []string{"tmux", "display-message", "-p", "#{session_name}"}) {
+			return "current", nil
+		}
+		if len(args) > 1 && args[0] == "tmux" && args[1] == "list-windows" && flagValue(args, "-t") != "=current" {
+			return "", errors.New("no session")
+		}
+		return original(dir, args...)
+	}
+	f.mustCLI("start", "feat/shared", "api", "web")
+	if f.manifest().Session != "current" || f.count("tmux", "new-session") != 0 {
+		t.Error("did not reuse current session")
+	}
+	delete(f.windows, "build")
+	f.mustCLI("review", "feat/shared")
+	for _, args := range f.calls {
+		if len(args) > 1 && args[0] == "workmux" && args[1] == "open" {
+			if flagValue(args, "--parent-session") != "current" || slices.Contains(args, "--prompt-file") || slices.Contains(args, "--prompt") {
+				t.Error(args)
+			}
+		}
+	}
+	dir := workspace(f.config(), "feat/shared")
+	for _, name := range []string{"BRIEF.md", "build-prompt.md", "review-api-prompt.md", "review-web-prompt.md"} {
+		if exists(filepath.Join(dir, name)) {
+			t.Errorf("generated %s", name)
+		}
+	}
+}
+
+func TestSharedSessionIgnoresOtherChangesAndOldPrompts(t *testing.T) {
+	f := newFixture(t)
+	m := f.start()
+	m.Session = "current"
+	m.Objective = "Old automatic prompt"
+	if err := save(f.config(), m); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMUX", "test,1,0")
+	f.windows["review-other"] = "@99"
+	f.owners["@99"] = "/another/workspace"
+	f.mustCLI("start", "feat/shared", "api", "web")
+	f.mustCLI("start", "feat/shared", "api", "web")
+	if f.count("workmux", "open") != 1 {
+		t.Fatal("builder not reused")
+	}
+	for _, args := range f.calls {
+		if slices.Contains(args, "--prompt") || slices.Contains(args, "--prompt-file") {
+			t.Fatal("replayed old prompt", args)
+		}
+	}
+	delete(f.windows, "build")
+	f.mustCLI("review", "feat/shared")
+	if f.count("workmux", "open") != 3 {
+		t.Fatal("reviewers not opened")
+	}
+}
+
+func TestReviewReusesInvokingBuilder(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("start", "feat/shared", "api", "web")
+	builder := f.windows["build"]
+	m := f.manifest()
+	m.Session = "current"
+	if err := save(f.config(), m); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMUX", "test,1,0")
+	f.currentWindow = builder
+	f.mustCLI("review", "feat/shared")
+	f.mustCLI("review", "feat/shared")
+	if f.windows["review"] != builder || len(f.windows) != 1 || len(f.panes) != 3 || f.count("workmux", "open") != 3 {
+		t.Fatal(f.windows, f.panes)
+	}
+	if code, _ := f.cli("start", "feat/shared", "api", "web"); code != 1 {
+		t.Fatal("builder reopened during review")
+	}
+}
+
+func TestReviewRetriesInterruptedPaneTransfer(t *testing.T) {
+	f := newFixture(t)
+	f.start()
+	original := f.a.run
+	failed := false
+	f.a.run = func(dir string, args ...string) (string, error) {
+		if len(args) > 1 && args[0] == "tmux" && args[1] == "join-pane" && !failed {
+			failed = true
+			return "", errors.New("interrupted")
+		}
+		return original(dir, args...)
+	}
+	if code, _ := f.cli("review", "feat/shared"); code != 1 {
+		t.Fatal("expected join failure")
+	}
+	f.mustCLI("review", "feat/shared")
+	if f.count("workmux", "open") != 2 || len(f.windows) != 1 || len(f.panes) != 2 {
+		t.Fatal(f.windows, f.panes)
 	}
 }

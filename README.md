@@ -105,6 +105,8 @@ wmm start feat/checkout oo bff web
 ```
 
 Use `--prompt 'Describe the change'` to explicitly send an initial prompt to a newly opened builder. Reopening without that flag does not replay a previous prompt. Workmux handles storage and delivery of explicitly requested prompts.
+
+If `start` fails, fix the reported cause and repeat the same command. Completed repositories are reused with their work preserved. An incomplete worktree is recorded and, if it has no changes, ignored/untracked files, or new commits, removed through workmux with its branch kept and provisioned again so setup hooks run. If it contains work, recovery stops and reports its location instead of deleting it. Hooks may therefore run more than once after a failure; external effects of hooks cannot be rolled back by wmm.
 ## Review independently
 
 When implementation is ready, run this from a shell pane in the builder window:
@@ -139,11 +141,29 @@ Status shows local Git state and commits since each pinned base. It does not cla
 
 Output uses a compact [TOON](https://toonformat.dev/) subset. Progress/diagnostics go to stderr; structured results and errors go to stdout. Exit codes: `0` success, `1` operational failure, `2` invalid input.
 
+## Remove a change
+
+```sh
+# Remove all of the change's worktrees, local branches, and managed windows.
+wmm remove feat/checkout
+
+# Keep the local branches and their commits.
+wmm remove feat/checkout --keep-branch
+
+# Preview, or explicitly discard unsaved files and unmerged commits.
+wmm remove feat/checkout --dry-run
+wmm remove feat/checkout --force
+```
+
+Removal works before or after review, including after an incomplete `start`. It checks every repository before making changes. By default it refuses tracked, untracked, or ignored files that would be lost, extra workspace files, and branch commits not merged into the locally recorded base. `--keep-branch` preserves commits but still protects unsaved files; combine it with `--force` to discard files while retaining branches. Remote branches are never deleted. Only windows tagged for this workspace are closed; unrelated windows remain open.
+
+If removal fails partway through, repeat the same command to finish. Its manifest records progress until cleanup completes; `start` and `review` are blocked while removal is incomplete. Repeating removal after completion succeeds without changes.
+
 ## Failure and cleanup behavior
 
-Operations are serialized per workspace. A failure never deletes work already created. If provisioning stops, fix the error and repeat the original command; completed repositories are preserved and skipped. If a setup hook fails **after creating its Git worktree**, wmm refuses to call it ready or silently adopt it: inspect the incomplete worktree and preserve any work before removing it and retrying.
+Operations are serialized per workspace. If provisioning stops, fix the error and repeat the original command; completed repositories are preserved and skipped. Intact incomplete worktrees are recreated on retry so setup hooks run again. Worktrees with changes are preserved for inspection. Use `wmm remove <branch>` to abandon the entire change.
 
-There is no group removal command in this first release. Worktrees remain compatible with ordinary workmux commands run from their real directories. The shared workspace and manifest are retained for inspection. Apart from the internal coordination repository's empty initialization commit, wmm does not commit, push, merge, or call agent APIs itself; interactive agents act under their own permission settings.
+Worktrees remain compatible with ordinary workmux commands run from their real directories. Apart from the internal coordination repository's empty initialization commit, wmm does not commit, push, merge, or call agent APIs itself; interactive agents act under their own permission settings.
 
 ## Development
 

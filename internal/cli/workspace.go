@@ -19,6 +19,8 @@ type repoState struct {
 	Path       string `json:"path"`
 	Handle     string `json:"handle"`
 	Ready      bool   `json:"ready"`
+	Attempted  bool   `json:"attempted,omitempty"`
+	Removed    bool   `json:"removed,omitempty"`
 }
 type manifest struct {
 	Version   int         `json:"version"`
@@ -205,6 +207,72 @@ func (a *app) verify(r repoState, branch string) error {
 	}
 	return fail("Worktree missing or branch changed for "+r.Alias, "Restore the recorded worktree and branch before retrying; see wmm status <branch>.")
 }
+
+// An incomplete setup must run through workmux again; the existence of a
+// worktree alone does not prove that its file operations and hooks succeeded.
+func (a *app) recoverProvisioning(c *config, m *manifest, r *repoState) error {
+	actual, err := a.worktreeFor(*r, m.Branch)
+	if err != nil {
+		return err
+	}
+	blocked := func() error {
+		return fail("Incomplete setup preserved for "+r.Alias+": "+actual,
+			"The worktree or branch cannot be safely recreated. Move valuable work to a separate branch or location, then remove the incomplete worktree and branch before retrying the same wmm start command.")
+	}
+	if actual != "" {
+		// The explicit workmux handle also recognizes incomplete worktrees from
+		// older manifests that did not record an attempted creation or path.
+		if filepath.Base(actual) != r.Handle {
+			return blocked()
+		}
+		if r.Path != "" {
+			left, e1 := canonical(actual)
+			right, e2 := canonical(r.Path)
+			if e1 != nil || e2 != nil || left != right {
+				return blocked()
+			}
+		}
+		r.Path = actual
+		r.Attempted = true
+		if err := save(c, m); err != nil {
+			return err
+		}
+		// Include ignored files: hooks may have copied credentials or other
+		// valuable files that ordinary git status would hide.
+		dirty, err := a.git(actual, "status", "--porcelain", "--untracked-files=all", "--ignored", "--ignore-submodules=none")
+		if err != nil {
+			return err
+		}
+		if dirty != "" {
+			return blocked()
+		}
+	}
+	ref := "refs/heads/" + m.Branch
+	commit, refErr := a.tryGit(r.Source, "rev-parse", "--verify", ref+"^{commit}")
+	if refErr == nil && (!r.Attempted || commit != r.BaseCommit) {
+		return blocked()
+	}
+	if actual != "" {
+		if refErr != nil {
+			return blocked()
+		}
+		// Keep the branch so removal never discards commits. Workmux can
+		// provision an existing branch once its incomplete worktree is gone.
+		if _, err := a.command(r.Source, "workmux", "remove", r.Handle, "--keep-branch"); err != nil {
+			return err
+		}
+		remaining, err := a.worktreeFor(*r, m.Branch)
+		if err != nil {
+			return err
+		}
+		if remaining != "" {
+			return blocked()
+		}
+	}
+	r.Path = ""
+	return nil
+}
+
 func (a *app) provision(c *config, m *manifest) error {
 	for i := range m.Repos {
 		r := &m.Repos[i]
@@ -213,15 +281,21 @@ func (a *app) provision(c *config, m *manifest) error {
 				return err
 			}
 		} else {
-			actual, err := a.worktreeFor(*r, m.Branch)
-			if err != nil {
+			if err := a.recoverProvisioning(c, m, r); err != nil {
 				return err
 			}
-			if actual != "" {
-				return fail("Incomplete provisioning in "+r.Alias+": "+actual, "Inspect the failed setup. Preserve any work before removing the incomplete worktree, then retry wmm start.")
+			r.Attempted = true
+			if err := save(c, m); err != nil {
+				return err
 			}
 			text, err := a.command(r.Source, "workmux", "add", m.Branch, "--headless", "--json", "--name", r.Handle, "--base", r.BaseCommit)
 			if err != nil {
+				if actual, lookupErr := a.worktreeFor(*r, m.Branch); lookupErr == nil && actual != "" {
+					r.Path = actual
+					if saveErr := save(c, m); saveErr != nil {
+						return saveErr
+					}
+				}
 				return err
 			}
 			var receipt struct {

@@ -14,6 +14,7 @@ type options struct {
 	command, config, branch, prompt, fields string
 	repos                                   []string
 	dryRun, noOpen, preparePR, help, fetch  bool
+	force, keepBranch                       bool
 	helpText                                string
 }
 
@@ -56,7 +57,13 @@ func newRoot(o *options) *cobra.Command {
 			return nil
 		}}
 	statusCmd.Flags().StringVar(&o.fields, "fields", "repo,state,commits", "detail columns: repo,state,commits,base,path,base_commit")
-	root.AddCommand(initCmd, startCmd, reviewCmd, statusCmd)
+	removeCmd := &cobra.Command{Use: "remove <branch>", Short: "Remove a change's worktrees, local branches, and managed windows", Args: cobra.ExactArgs(1),
+		Example: "  wmm remove feat/change\n  wmm remove feat/change --keep-branch\n  wmm remove feat/change --dry-run",
+		RunE:    func(cmd *cobra.Command, args []string) error { o.command = "remove"; o.branch = args[0]; return nil }}
+	removeCmd.Flags().BoolVar(&o.dryRun, "dry-run", false, "preview removal without changing files, branches, or windows")
+	removeCmd.Flags().BoolVar(&o.keepBranch, "keep-branch", false, "keep local branches and their commits")
+	removeCmd.Flags().BoolVar(&o.force, "force", false, "discard uncommitted files and unmerged commits (unless --keep-branch)")
+	root.AddCommand(initCmd, startCmd, reviewCmd, statusCmd, removeCmd)
 	return root
 }
 

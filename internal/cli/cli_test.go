@@ -29,6 +29,7 @@ type fixture struct {
 	nextWindow      int
 	failAlias       string
 	failAfterCreate bool
+	failRemoveAlias string
 }
 
 func gitTest(t *testing.T, cwd string, args ...string) string {
@@ -99,12 +100,33 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return "", err
 		}
-		gitTest(f.t, cwd, "worktree", "add", "-b", args[2], path, flagValue(args, "--base"))
+		if _, err := execute(cwd, "git", "show-ref", "--verify", "refs/heads/"+args[2]); err == nil {
+			gitTest(f.t, cwd, "worktree", "add", path, args[2])
+		} else {
+			gitTest(f.t, cwd, "worktree", "add", "-b", args[2], path, flagValue(args, "--base"))
+		}
 		if alias == f.failAlias {
 			return "", errors.New("simulated hook failure after creation")
 		}
 		data, _ := json.Marshal(map[string]any{"schema_version": 1, "branch": args[2], "worktree_path": path})
 		return string(data), nil
+	}
+	if len(args) >= 2 && args[0] == "workmux" && args[1] == "remove" {
+		if !slices.Contains(args, "--keep-branch") {
+			f.t.Fatal("worktree removal must preserve the branch for separate handling")
+		}
+		alias := "api"
+		if cwd == f.repos["web"] {
+			alias = "web"
+		}
+		if alias == f.failRemoveAlias {
+			return "", errors.New("simulated removal failure")
+		}
+		gitArgs := []string{"git", "worktree", "remove"}
+		if slices.Contains(args, "--force") {
+			gitArgs = append(gitArgs, "--force")
+		}
+		return execute(cwd, append(gitArgs, filepath.Join(f.root, "worktrees", alias, args[2]))...)
 	}
 	if len(args) >= 2 && args[0] == "workmux" && args[1] == "open" {
 		f.nextWindow++
@@ -354,17 +376,89 @@ func TestPartialFailureRetryPreservesWork(t *testing.T) {
 		t.Fatal("work lost")
 	}
 }
-func TestHookFailureAfterCreationIsNotSilentlyAdopted(t *testing.T) {
+func TestHookFailureAfterCreationRetriesProvisioning(t *testing.T) {
 	f := newFixture(t)
 	f.failAlias = "web"
 	f.failAfterCreate = true
 	if code, _ := f.cli("start", "feat/shared", "api", "web", "--no-open"); code != 1 {
 		t.Fatal(code)
 	}
+	partial := f.manifest()
+	if partial.Repos[1].Path == "" {
+		t.Fatal("incomplete worktree was not recorded")
+	}
 	f.failAlias = ""
 	code, out := f.cli("start", "feat/shared", "api", "web", "--no-open")
-	if code != 1 || !strings.Contains(out, "Incomplete provisioning") {
+	if code != 0 {
 		t.Fatal(code, out)
+	}
+	if !f.manifest().Repos[1].Ready || f.count("workmux", "add") != 3 {
+		t.Fatal("did not retry incomplete setup while preserving completed repositories")
+	}
+}
+
+func TestIncompleteProvisioningPreservesChanges(t *testing.T) {
+	for _, kind := range []string{"tracked", "untracked", "ignored", "commit"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newFixture(t)
+			f.failAlias, f.failAfterCreate = "web", true
+			f.cli("start", "feat/shared", "api", "web", "--no-open")
+			r := f.manifest().Repos[1]
+			path, err := f.a.worktreeFor(r, "feat/shared")
+			if err != nil || path == "" {
+				t.Fatal(path, err)
+			}
+			file := filepath.Join(path, "keep.txt")
+			switch kind {
+			case "tracked":
+				file = filepath.Join(path, "file.txt")
+			case "ignored":
+				gitTest(t, path, "config", "core.excludesFile", filepath.Join(f.root, "ignore"))
+				if err := os.WriteFile(filepath.Join(f.root, "ignore"), []byte("keep.txt\n"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(file, []byte("preserve me"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "commit" {
+				gitTest(t, path, "add", ".")
+				gitTest(t, path, "commit", "-m", "keep work")
+			}
+			f.failAlias = ""
+			code, out := f.cli("start", "feat/shared", "api", "web", "--no-open")
+			if code != 1 || !strings.Contains(out, "preserved") || f.count("workmux", "remove") != 0 {
+				t.Fatal(code, out)
+			}
+			if data, err := os.ReadFile(file); err != nil || string(data) != "preserve me" {
+				t.Fatal("lost changes", err)
+			}
+		})
+	}
+}
+
+func TestRetryRecoversInterruptedProvisioning(t *testing.T) {
+	for _, stage := range []string{"legacy-worktree", "branch-only"} {
+		t.Run(stage, func(t *testing.T) {
+			f := newFixture(t)
+			f.failAlias, f.failAfterCreate = "web", true
+			f.cli("start", "feat/shared", "api", "web", "--no-open")
+			m := f.manifest()
+			r := &m.Repos[1]
+			if stage == "branch-only" {
+				gitTest(t, r.Source, "worktree", "remove", r.Path)
+			} else {
+				r.Path, r.Attempted = "", false
+			}
+			if err := save(f.config(), m); err != nil {
+				t.Fatal(err)
+			}
+			f.failAlias = ""
+			f.start()
+			if !f.manifest().Repos[1].Ready {
+				t.Fatal("incomplete repository was not recovered")
+			}
+		})
 	}
 }
 func TestStatusTracksCommitsAndUntrackedFiles(t *testing.T) {

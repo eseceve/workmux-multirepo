@@ -74,9 +74,15 @@ func (a *app) dispatch(args []string) error {
 	if o.command == "start" {
 		return a.start(c, o)
 	}
+	if o.command == "remove" {
+		return a.remove(c, o)
+	}
 	m, err := load(c, o.branch)
 	if err != nil {
 		return err
+	}
+	if m.Phase == "removing" {
+		return fail("Removal is incomplete.", "Repeat wmm remove for this branch to finish cleanup.")
 	}
 	if o.dryRun {
 		a.scalar("branch", o.branch)
@@ -109,6 +115,9 @@ func (a *app) start(c *config, o options) error {
 		m, err = load(c, o.branch)
 		if err != nil {
 			return err
+		}
+		if m.Phase == "removing" {
+			return fail("Removal is incomplete.", "Repeat wmm remove for this branch to finish cleanup.")
 		}
 		aliases := []string{}
 		for _, r := range m.Repos {

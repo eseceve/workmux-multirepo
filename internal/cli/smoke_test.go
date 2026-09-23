@@ -205,4 +205,91 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 		}
 	}
 	t.Log("native global/project agents, pane layouts, prefixes, prompts, lifecycle guards, and idempotent reopening passed")
+
+	// Simulate losing the receipt after workmux has created a real worktree.
+	// Retry must remove only that incomplete worktree and run setup again.
+	addCalls := 0
+	f.a.run = func(cwd string, args ...string) (string, error) {
+		out, err := execute(cwd, args...)
+		if len(args) > 2 && args[0] == "workmux" && args[1] == "add" && args[2] != "--help" {
+			addCalls++
+			if err == nil && addCalls == 2 {
+				return "", fmt.Errorf("simulated lost provisioning receipt")
+			}
+		}
+		return out, err
+	}
+	if code, out := f.cli("start", "feat/retry", "api", "web", "--no-open"); code != 1 {
+		t.Fatalf("expected injected failure: %d %s", code, out)
+	}
+	retry, err := load(f.config(), "feat/retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retry.Repos[1].Path == "" || retry.Repos[1].Ready {
+		t.Fatal("missing record of incomplete worktree")
+	}
+	marker := filepath.Join(retry.Repos[0].Path, "keep.txt")
+	write(marker, "preserved")
+	f.mustCLI("start", "feat/retry", "api", "web", "--no-open")
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "preserved" || addCalls != 3 {
+		t.Fatal("retry did not preserve completed work and recreate only incomplete worktree", err, addCalls)
+	}
+	t.Log("real workmux recovery after lost receipt passed")
+	f.a.run = execute
+	f.mustCLI("remove", "feat/retry", "--force", "--keep-branch")
+	for _, r := range retry.Repos {
+		gitTest(t, r.Source, "rev-parse", "--verify", "refs/heads/feat/retry")
+		if exists(r.Path) {
+			t.Fatal("worktree remains after group removal", r.Path)
+		}
+	}
+	f.mustCLI("remove", "feat/shared")
+	if exists(dir) {
+		t.Fatal("workspace remains after removal")
+	}
+	if windows := f.a.windows(m.Session); len(windows) != 1 || windows["control"] == "" {
+		t.Fatal("removal did not preserve only the unrelated control window", windows)
+	}
+	f.mustCLI("remove", "feat/shared")
+	t.Log("real group removal, branch retention, and unrelated window preservation passed")
+
+	// Exercise the installed CLI process from a window it must close itself.
+	// Closing that terminal must not interrupt final manifest cleanup.
+	cliBin := filepath.Join(bin, "wmm")
+	build := exec.Command("go", "build", "-o", cliBin, "../../cmd/wmm")
+	if data, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build CLI: %v %s", err, data)
+	}
+	f.mustCLI("start", "feat/self-remove", "api", "web", "--no-open")
+	selfDir := workspace(f.config(), "feat/self-remove")
+	self, err := load(f.config(), "feat/self-remove")
+	if err != nil {
+		t.Fatal(err)
+	}
+	self.Session = "current"
+	if err := save(f.config(), self); err != nil {
+		t.Fatal(err)
+	}
+	gate, log := filepath.Join(bin, "remove-go"), filepath.Join(bin, "remove.log")
+	script := filepath.Join(bin, "remove.sh")
+	write(script, "while [ ! -f "+quote(gate)+" ]; do sleep 0.05; done\nexec "+quote(cliBin)+" --config "+quote(filepath.Join(f.root, "wmm.toml"))+" remove feat/self-remove > "+quote(log)+" 2>&1\n")
+	window, err := execute("", "tmux", "new-window", "-d", "-P", "-F", "#{window_id}", "-t", "current", "-n", "self-remove", "-c", selfDir, "sh "+quote(script))
+	if err != nil {
+		t.Fatal(err)
+	}
+	window = strings.TrimSpace(window)
+	if _, err := execute("", "tmux", "set-window-option", "-t", window, "@wmm_workspace", selfDir); err != nil {
+		t.Fatal(err)
+	}
+	write(gate, "go")
+	deadline := time.Now().Add(10 * time.Second)
+	for exists(selfDir) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if exists(selfDir) {
+		data, _ := os.ReadFile(log)
+		t.Fatalf("removal from own terminal did not finish: %s", data)
+	}
+	t.Log("CLI removal from its own terminal completed")
 }

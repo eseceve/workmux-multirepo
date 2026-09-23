@@ -260,12 +260,41 @@ func TestFetchUsesNewRemoteCommitAndRepairsOriginHead(t *testing.T) {
 	gitTest(t, clone, "push", "origin", "release")
 	expected := gitTest(t, clone, "rev-parse", "HEAD")
 	gitTest(t, f.repos["api"], "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
-	m := f.start()
+	f.mustCLI("start", "feat/shared", "api", "web", "--no-open", "--fetch")
+	m := f.manifest()
 	if m.Repos[0].BaseCommit != expected {
 		t.Fatal("did not fetch latest remote commit")
 	}
 	if gitTest(t, f.repos["api"], "symbolic-ref", "--short", "refs/remotes/origin/HEAD") != "origin/release" {
 		t.Fatal("origin HEAD not repaired")
+	}
+}
+func TestStartUsesLocalBaseWithoutNetwork(t *testing.T) {
+	f := newFixture(t)
+	expected := gitTest(t, f.repos["api"], "rev-parse", "origin/release")
+	gitTest(t, f.repos["api"], "remote", "set-url", "origin", filepath.Join(f.root, "unavailable.git"))
+	m := f.start()
+	if m.Repos[0].BaseCommit != expected {
+		t.Fatal("did not pin local remote-tracking base")
+	}
+	if f.count("git", "fetch") != 0 || f.count("git", "ls-remote") != 0 {
+		t.Fatal("default start accessed the network")
+	}
+}
+
+func TestStartMissingLocalBaseSuggestsFetch(t *testing.T) {
+	for _, ref := range []string{"refs/remotes/origin/HEAD", "refs/remotes/origin/release"} {
+		t.Run(ref, func(t *testing.T) {
+			f := newFixture(t)
+			gitTest(t, f.repos["api"], "update-ref", "--no-deref", "-d", ref)
+			code, out := f.cli("start", "feat/shared", "api", "web", "--no-open")
+			if code != 1 || !strings.Contains(out, "--fetch") {
+				t.Fatalf("expected actionable missing-base error: %d %s", code, out)
+			}
+			if f.count("workmux", "add") != 0 || f.count("git", "ls-remote") != 0 || f.count("git", "fetch") != 0 {
+				t.Fatal("missing base caused provisioning or network access")
+			}
+		})
 	}
 }
 func TestRepeatedStartKeepsOriginalBase(t *testing.T) {

@@ -165,7 +165,7 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 		return fail("Review windows are still open.", "Close the review windows before reopening the shared builder.")
 	}
 	if active["build"] != "" {
-		return nil
+		return a.nameBuilder(active["build"], m.Branch)
 	}
 	dir := workspace(c, m.Branch)
 	if err := a.coordinator(dir); err != nil {
@@ -184,12 +184,22 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 	if err := a.openAgent(dir, filepath.Base(dir), m.Session, "build", prompt, configPath, dir); err != nil {
 		return err
 	}
+	if err := a.nameBuilder(a.managedWindows(c, m)["build"], m.Branch); err != nil {
+		return err
+	}
 	m.Phase = "implementation"
 	if err := save(c, m); err != nil {
 		return err
 	}
 	a.focus(m.Session)
 	return nil
+}
+func (a *app) nameBuilder(window, branch string) error {
+	if window == "" {
+		return fail("Builder window was not created.", "Retry the same wmm start command.")
+	}
+	_, err := a.command("", "tmux", "rename-window", "-t", window, branch)
+	return err
 }
 func (a *app) focus(session string) {
 	if os.Getenv("TMUX") != "" {

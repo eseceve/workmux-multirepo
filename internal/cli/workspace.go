@@ -123,6 +123,23 @@ func (a *app) plan(c *config, branch string, aliases []string) ([]repoState, err
 	}
 	return records, nil
 }
+func (a *app) localBases(records []repoState) error {
+	for i := range records {
+		r := &records[i]
+		ref, err := a.tryGit(r.Source, "symbolic-ref", "refs/remotes/origin/HEAD")
+		if err != nil || !strings.HasPrefix(ref, "refs/remotes/origin/") {
+			return fail("Local default base unavailable for "+r.Alias, "Retry the same wmm start command with --fetch to discover and fetch the remote default branch.")
+		}
+		commit, err := a.tryGit(r.Source, "rev-parse", "--verify", ref+"^{commit}")
+		if err != nil {
+			return fail("Local default base unavailable for "+r.Alias, "Retry the same wmm start command with --fetch to discover and fetch the remote default branch.")
+		}
+		r.Base = strings.TrimPrefix(ref, "refs/remotes/")
+		r.BaseCommit = commit
+	}
+	return nil
+}
+
 func (a *app) fetchBases(records []repoState) error {
 	pattern := regexp.MustCompile(`(?m)^ref: refs/heads/(.+)\s+HEAD$`)
 	for i := range records {

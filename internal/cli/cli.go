@@ -130,7 +130,13 @@ func (a *app) start(c *config, o options) error {
 	if o.dryRun {
 		a.scalar("branch", o.branch)
 		a.scalar("workspace", dir)
-		a.scalar("fetch", "on execution (dry-run uses local refs)")
+		fetch := "disabled (uses local remote-tracking bases)"
+		if o.fetch && !existing {
+			fetch = "on execution (dry-run uses local refs)"
+		} else if existing {
+			fetch = "disabled (keeps pinned bases)"
+		}
+		a.scalar("fetch", fetch)
 		rows := [][]any{}
 		for _, r := range records {
 			rows = append(rows, []any{r.Alias, r.Base, r.Handle})
@@ -142,7 +148,12 @@ func (a *app) start(c *config, o options) error {
 		return err
 	}
 	if !existing {
-		if err = a.fetchBases(records); err != nil {
+		if o.fetch {
+			err = a.fetchBases(records)
+		} else {
+			err = a.localBases(records)
+		}
+		if err != nil {
 			return err
 		}
 		if err = os.Mkdir(dir, 0755); err != nil {

@@ -13,7 +13,7 @@ var Version = "dev"
 type options struct {
 	command, config, branch, prompt, fields string
 	repos                                   []string
-	dryRun, noOpen, preparePR, help         bool
+	dryRun, noOpen, preparePR, help, fetch  bool
 	helpText                                string
 }
 
@@ -40,6 +40,7 @@ func newRoot(o *options) *cobra.Command {
 	startCmd.Flags().StringVar(&o.prompt, "prompt", "", "optional initial prompt (default: none)")
 	startCmd.Flags().BoolVar(&o.dryRun, "dry-run", false, "show plan without fetching, creating, or launching")
 	startCmd.Flags().BoolVar(&o.noOpen, "no-open", false, "provision worktrees without opening a window")
+	startCmd.Flags().BoolVar(&o.fetch, "fetch", false, "fetch remote default bases before creating a new workspace (reopening keeps pinned bases)")
 	reviewCmd := &cobra.Command{Use: "review <branch>", Short: "Open reviewer panes per repository in one tmux window", Args: cobra.ExactArgs(1),
 		Example: "  wmm review feat/change\n  wmm review feat/change --prepare-pr --dry-run",
 		RunE:    func(cmd *cobra.Command, args []string) error { o.command = "review"; o.branch = args[0]; return nil }}

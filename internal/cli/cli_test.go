@@ -25,7 +25,6 @@ type fixture struct {
 	owners          map[string]string
 	panes           map[string]string
 	paneRepos       map[string]string
-	currentWindow   string
 	nextWindow      int
 	order           []string
 	failAlias       string
@@ -139,9 +138,6 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 	if len(args) >= 2 && args[0] == "tmux" {
 		switch args[1] {
 		case "display-message":
-			if args[len(args)-1] == "#{window_id}" {
-				return f.currentWindow, nil
-			}
 			return "current", nil
 		case "list-panes":
 			var out strings.Builder
@@ -485,15 +481,14 @@ func TestStatusTracksCommitsAndUntrackedFiles(t *testing.T) {
 }
 func TestReviewGroupedAndIdempotentWindows(t *testing.T) {
 	f := newFixture(t)
-	f.start()
-	f.windows["build"] = "@99"
+	f.mustCLI("start", "feat/shared", "api", "web")
 	f.mustCLI("review", "feat/shared", "--prepare-pr")
 	f.mustCLI("review", "feat/shared", "--prepare-pr")
-	if f.count("workmux", "open") != 2 || len(f.windows) != 2 {
+	if f.count("workmux", "open") != 3 || len(f.windows) != 1 {
 		t.Fatal(f.windows)
 	}
 	for _, args := range f.calls {
-		if len(args) > 1 && args[0] == "workmux" && args[1] == "open" {
+		if len(args) > 1 && args[0] == "workmux" && args[1] == "open" && strings.HasPrefix(flagValue(args, "--target-name"), "review-") {
 			prompt := flagValue(args, "--prompt")
 			if !strings.Contains(prompt, "Do not push or publish") || !strings.Contains(prompt, "staged, unstaged, and untracked") {
 				t.Fatal(args)
@@ -721,20 +716,19 @@ func TestSharedSessionIgnoresOtherChangesAndOldPrompts(t *testing.T) {
 	}
 }
 
-func TestReviewReusesInvokingBuilder(t *testing.T) {
+func TestReviewInsideTmuxReplacesImplementationWindow(t *testing.T) {
 	f := newFixture(t)
 	f.mustCLI("start", "feat/shared", "api", "web")
-	builder := f.windows["build"]
+	position := slices.Index(f.order, f.windows["build"])
 	m := f.manifest()
 	m.Session = "current"
 	if err := save(f.config(), m); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TMUX", "test,1,0")
-	f.currentWindow = builder
 	f.mustCLI("review", "feat/shared")
 	f.mustCLI("review", "feat/shared")
-	if f.windows["review"] != builder || len(f.windows) != 1 || len(f.panes) != 3 || f.count("workmux", "open") != 3 {
+	if f.windows["build"] != "" || len(f.windows) != 1 || slices.Index(f.order, f.windows["review"]) != position || len(f.panes) != 3 || f.count("workmux", "open") != 3 {
 		t.Fatal(f.windows, f.panes)
 	}
 	f.mustCLI("start", "feat/shared", "api", "web")
@@ -839,5 +833,24 @@ func TestMultiRepositoryBuilderWindowName(t *testing.T) {
 		if len(args) > 1 && args[0] == "tmux" && args[1] == "rename-window" && args[len(args)-1] != " feat/shared" {
 			t.Fatal(args)
 		}
+	}
+}
+func TestReviewReplacesImplementationWindow(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("start", "feat/shared", "api", "web")
+	position := slices.Index(f.order, f.windows["build"])
+	f.mustCLI("review", "feat/shared")
+	review := f.windows["review"]
+	if review == "" || f.windows["build"] != "" || len(f.windows) != 1 || slices.Index(f.order, review) != position {
+		t.Fatal(f.windows, f.order)
+	}
+	renamed := false
+	for _, args := range f.calls {
+		if slices.Equal(args, []string{"tmux", "rename-window", "-t", review, " feat/shared"}) {
+			renamed = true
+		}
+	}
+	if !renamed || f.manifest().Phase != "review" {
+		t.Fatal("review window not named", f.manifest().Phase)
 	}
 }

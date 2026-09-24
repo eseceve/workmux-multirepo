@@ -227,15 +227,6 @@ func (a *app) focus(session string) {
 	}
 }
 
-// Resolve the invoking pane explicitly: the active window can change while
-// workmux launches agents, and another tmux client may have a different focus.
-func (a *app) currentWindow() (string, error) {
-	if os.Getenv("TMUX") == "" {
-		return "", nil
-	}
-	return a.tmuxContext("#{window_id}")
-}
-
 func (a *app) tmuxContext(format string) (string, error) {
 	args := []string{"tmux", "display-message", "-p"}
 	if pane := os.Getenv("TMUX_PANE"); pane != "" {
@@ -268,18 +259,12 @@ func (a *app) openReviews(c *config, m *manifest, preparePR bool) error {
 			return err
 		}
 	}
-	current, err := a.currentWindow()
+	err := a.bindSession(c, m, true)
 	if err != nil {
-		return err
-	}
-	if err = a.bindSession(c, m, true); err != nil {
 		return err
 	}
 	active := a.managedWindows(c, m)
 	target := active["review"]
-	if target == "" && current != "" && current == active["build"] {
-		target = current
-	}
 	dir := workspace(c, m.Branch)
 	markTarget := func() error {
 		if _, err := a.command("", "tmux", "set-window-option", "-t", target, "@wmm_role", "review"); err != nil {
@@ -351,10 +336,23 @@ func (a *app) openReviews(c *config, m *manifest, preparePR bool) error {
 			}
 		}
 	}
-	if target != "" {
-		if _, err = a.command("", "tmux", "select-window", "-t", target); err != nil {
+	if target == "" {
+		return nil
+	}
+	if _, err := a.command("", "tmux", "rename-window", "-t", target, reviewIcon+" "+m.Branch); err != nil {
+		return err
+	}
+	if build := active["build"]; build != "" {
+		if _, err := a.command("", "tmux", "swap-window", "-s", target, "-t", build); err != nil {
 			return err
 		}
+		// The invoking pane may live in the builder's window, so close it last.
+		if _, err := a.command("", "tmux", "kill-window", "-t", build); err != nil {
+			return err
+		}
+	}
+	if _, err := a.command("", "tmux", "select-window", "-t", target); err != nil {
+		return err
 	}
 	a.focus(m.Session)
 	return nil

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,6 +121,20 @@ func TestRemoveIncompleteStart(t *testing.T) {
 func TestRemoveChangeInDebug(t *testing.T) {
 	f := newFixture(t)
 	f.mustCLI("debug", "feat/shared")
+	f.mustCLI("remove", "feat/shared")
+	if len(f.windows) != 0 || exists(workspace(f.config(), "feat/shared")) {
+		t.Fatal(f.windows)
+	}
+}
+func TestRemoveChangeInDebugWithoutWorkmux(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("debug", "feat/shared")
+	f.a.lookup = func(name string) (string, error) {
+		if name == "workmux" {
+			return "", errors.New("not found")
+		}
+		return "/bin/" + name, nil
+	}
 	f.mustCLI("remove", "feat/shared")
 	if len(f.windows) != 0 || exists(workspace(f.config(), "feat/shared")) {
 		t.Fatal(f.windows)

@@ -39,8 +39,10 @@ func (a *app) remove(c *config, o options) error {
 		a.scalar("keep_branch", o.keepBranch)
 		return nil
 	}
-	if err := a.prerequisites(c); err != nil {
-		return err
+	if len(m.Repos) > 0 {
+		if err := a.prerequisites(c); err != nil {
+			return err
+		}
 	}
 	// Removal may close the terminal running wmm. Finish saving/cleaning state
 	// even if its shell sends SIGHUP or the output pipe disappears.

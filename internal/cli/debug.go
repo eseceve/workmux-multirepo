@@ -10,14 +10,14 @@ func (a *app) debug(c *config, o options) (err error) {
 		return err
 	}
 	dir := workspace(c, o.branch)
-	m := &manifest{Version: 1, Branch: o.branch, Phase: "debug", Session: sessionName(c, o.branch)}
+	m := &manifest{Version: 1, Branch: o.branch, Phase: phaseDebug, Session: sessionName(c, o.branch)}
 	if exists(filepath.Join(dir, "manifest.json")) {
 		existing, err := load(c, o.branch)
 		if err != nil {
 			return err
 		}
-		if existing.Phase != "debug" {
-			return fail("Change "+o.branch+" already has worktrees (phase: "+existing.Phase+").", "Use wmm start or wmm review for this change.")
+		if existing.Phase != phaseDebug {
+			return fail("Change "+o.branch+" already has worktrees (phase: "+string(existing.Phase)+").", "Use wmm start or wmm review for this change.")
 		}
 		m = existing
 	} else {

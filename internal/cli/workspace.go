@@ -22,10 +22,21 @@ type repoState struct {
 	Attempted  bool   `json:"attempted,omitempty"`
 	Removed    bool   `json:"removed,omitempty"`
 }
+type phase string
+
+const (
+	phaseDebug          phase = "debug"
+	phaseProvisioning   phase = "provisioning"
+	phaseReady          phase = "ready"
+	phaseImplementation phase = "implementation"
+	phaseReview         phase = "review"
+	phaseRemoving       phase = "removing"
+)
+
 type manifest struct {
 	Version   int         `json:"version"`
 	Branch    string      `json:"branch"`
-	Phase     string      `json:"phase"`
+	Phase     phase       `json:"phase"`
 	Objective string      `json:"objective"`
 	Session   string      `json:"session"`
 	Repos     []repoState `json:"repos"`
@@ -55,7 +66,7 @@ func load(c *config, branch string) (*manifest, error) {
 	if err = json.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
-	if m.Version != 1 || m.Branch != branch || (len(m.Repos) == 0) != (m.Phase == "debug") {
+	if m.Version != 1 || m.Branch != branch || (m.Phase == phaseDebug) == (len(m.Repos) > 0) {
 		return nil, fail("Unsupported or mismatched workspace manifest.", "Restore the manifest from a backup; existing worktrees were preserved.")
 	}
 	return &m, nil
@@ -342,8 +353,8 @@ func (a *app) provision(c *config, m *manifest) error {
 			return err
 		}
 	}
-	if m.Phase == "provisioning" {
-		m.Phase = "ready"
+	if m.Phase == phaseProvisioning {
+		m.Phase = phaseReady
 	}
 	return save(c, m)
 }

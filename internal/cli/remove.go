@@ -49,7 +49,7 @@ func (a *app) remove(c *config, o options) error {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGHUP, syscall.SIGPIPE)
 	defer signal.Stop(signals)
-	m.Phase = "removing"
+	m.Phase = phaseRemoving
 	if err := save(c, m); err != nil {
 		return err
 	}

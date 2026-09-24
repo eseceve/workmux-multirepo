@@ -84,10 +84,10 @@ func (a *app) dispatch(args []string) error {
 	if err != nil {
 		return err
 	}
-	if m.Phase == "removing" {
+	if m.Phase == phaseRemoving {
 		return fail("Removal is incomplete.", "Repeat wmm remove for this branch to finish cleanup.")
 	}
-	if m.Phase == "debug" {
+	if m.Phase == phaseDebug {
 		return fail("Change "+o.branch+" has no worktrees to review.", "Run wmm start "+o.branch+" <repos...> first.")
 	}
 	if o.dryRun {
@@ -117,22 +117,23 @@ func (a *app) dispatch(args []string) error {
 }
 func (a *app) start(c *config, o options) error {
 	dir := workspace(c, o.branch)
-	existing := exists(filepath.Join(dir, "manifest.json"))
+	resumable := exists(filepath.Join(dir, "manifest.json"))
+	fromDebug := false
 	var m *manifest
 	var records []repoState
 	var err error
 	session := sessionName(c, o.branch)
-	if existing {
+	if resumable {
 		m, err = load(c, o.branch)
 		if err != nil {
 			return err
 		}
-		if m.Phase == "debug" {
-			existing, session = false, m.Session
+		if m.Phase == phaseDebug {
+			resumable, fromDebug, session = false, true, m.Session
 		}
 	}
-	if existing {
-		if m.Phase == "removing" {
+	if resumable {
+		if m.Phase == phaseRemoving {
 			return fail("Removal is incomplete.", "Repeat wmm remove for this branch to finish cleanup.")
 		}
 		aliases := []string{}
@@ -156,9 +157,9 @@ func (a *app) start(c *config, o options) error {
 		a.scalar("branch", o.branch)
 		a.scalar("workspace", dir)
 		fetch := "disabled (uses local remote-tracking bases)"
-		if o.fetch && !existing {
+		if o.fetch && !resumable {
 			fetch = "on execution (dry-run uses local refs)"
-		} else if existing {
+		} else if resumable {
 			fetch = "disabled (keeps pinned bases)"
 		}
 		a.scalar("fetch", fetch)
@@ -172,7 +173,7 @@ func (a *app) start(c *config, o options) error {
 	if err = a.prerequisites(c); err != nil {
 		return err
 	}
-	if !existing {
+	if !resumable {
 		if o.fetch {
 			err = a.fetchBases(records)
 		} else {
@@ -181,10 +182,10 @@ func (a *app) start(c *config, o options) error {
 		if err != nil {
 			return err
 		}
-		if err = os.Mkdir(dir, 0755); err != nil && !(m != nil && os.IsExist(err)) {
+		if err = os.Mkdir(dir, 0755); err != nil && !(fromDebug && os.IsExist(err)) {
 			return err
 		}
-		m = &manifest{Version: 1, Branch: o.branch, Phase: "provisioning", Repos: records, Objective: o.prompt, Session: session}
+		m = &manifest{Version: 1, Branch: o.branch, Phase: phaseProvisioning, Repos: records, Objective: o.prompt, Session: session}
 		if err = save(c, m); err != nil {
 			return err
 		}

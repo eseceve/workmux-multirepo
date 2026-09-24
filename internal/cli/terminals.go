@@ -208,7 +208,7 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 	if err := a.nameBuilder(build, name); err != nil {
 		return err
 	}
-	m.Phase = "implementation"
+	m.Phase = phaseImplementation
 	return a.replaceWindow(c, m, build)
 }
 
@@ -317,7 +317,7 @@ func (a *app) openReviews(c *config, m *manifest, preparePR bool, configPath str
 		if _, err := a.command("", "tmux", "set-window-option", "-t", target, "@wmm_role", "review"); err != nil {
 			return err
 		}
-		m.Phase = "review"
+		m.Phase = phaseReview
 		return save(c, m)
 	}
 	if target != "" {

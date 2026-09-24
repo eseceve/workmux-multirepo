@@ -347,7 +347,7 @@ func (a *app) openReviews(c *config, m *manifest, preparePR bool, configPath str
 				if _, err = a.command("", "tmux", "join-pane", "-d", "-s", pane, "-t", target, "-l", "1"); err != nil {
 					return err
 				}
-				if err = a.layoutReviewers(target); err != nil {
+				if _, err = a.command("", "tmux", "select-layout", "-t", target, "tiled"); err != nil {
 					return err
 				}
 			}
@@ -355,6 +355,9 @@ func (a *app) openReviews(c *config, m *manifest, preparePR bool, configPath str
 	}
 	if target == "" {
 		return nil
+	}
+	if err = a.layoutReviewers(target); err != nil {
+		return err
 	}
 	if _, err := a.command("", "tmux", "rename-window", "-t", target, reviewIcon+" "+m.Branch); err != nil {
 		return err

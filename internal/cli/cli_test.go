@@ -945,3 +945,12 @@ func TestReviewWorkmuxConfigFlagOverridesUserConfig(t *testing.T) {
 		t.Fatal(configs)
 	}
 }
+func TestSingleRepositoryReviewerLayoutFollowsPaneCount(t *testing.T) {
+	f := newFixture(t)
+	f.panesPerWindow = 5
+	f.mustCLI("start", "feat/shared", "api", "--no-open")
+	f.mustCLI("review", "feat/shared")
+	if layout := f.lastLayout(); layout != "tiled" {
+		t.Fatal(layout)
+	}
+}

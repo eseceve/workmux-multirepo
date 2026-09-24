@@ -143,7 +143,16 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 	}
 	f.mustCLI("start", "feat/shared", "api", "web")
 	checkWindow("build", prIcon+" "+m.Branch, 2)
+	index := func(window string) string {
+		t.Helper()
+		out, err := execute("", "tmux", "display-message", "-p", "-t", window, "#{window_index}")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(out)
+	}
 	builder := f.a.windows(m.Session)["build"]
+	position := index(builder)
 	pane, err := execute("", "tmux", "display-message", "-p", "-t", builder, "#{pane_id}")
 	if err != nil {
 		t.Fatal(err)
@@ -152,38 +161,20 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 	f.mustCLI("review", "feat/shared")
 	checkAgent("codex", m.Repos[0].Path)
 	checkAgent("gemini", m.Repos[1].Path)
-	checkWindow("review", m.Branch, 7)
-	if f.a.windows(m.Session)["review"] != builder {
-		t.Fatal("did not reuse builder")
+	// Reviewers replace the implementation window in place and close the builder.
+	review := f.a.windows(m.Session)["review"]
+	if review == "" || f.a.windows(m.Session)["build"] != "" || index(review) != position {
+		t.Fatal("review did not replace the implementation window", f.a.windows(m.Session))
 	}
-	f.mustCLI("review", "feat/shared")
-	if len(f.a.windows(m.Session)) != 2 {
-		t.Fatal("duplicate review windows")
-	}
-	if code, _ := f.cli("start", "feat/shared", "api", "web"); code != 1 {
-		t.Fatal("reviewers bypassed guard")
-	}
-	// From a different window, create one separate review window while keeping
-	// the implementation window and all of its processes alive.
+	checkWindow("review", reviewIcon+" "+m.Branch, 5)
 	control, err := execute("", "tmux", "display-message", "-p", "-t", "current:control", "#{pane_id}")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TMUX_PANE", strings.TrimSpace(control))
-	if _, err = execute("", "tmux", "kill-window", "-t", builder); err != nil {
-		t.Fatal(err)
-	}
-	f.mustCLI("start", "feat/shared", "api", "web")
-	builder = f.a.windows(m.Session)["build"]
 	f.mustCLI("review", "feat/shared")
-	review := f.a.windows(m.Session)["review"]
-	if review == "" || review == builder || f.a.windows(m.Session)["build"] != builder || len(f.a.windows(m.Session)) != 3 {
-		t.Fatal("review from another window did not create a separate group")
-	}
-	checkWindow("review", "custom-review-api-"+digest(dir, 8), 5)
-	f.mustCLI("review", "feat/shared")
-	if len(f.a.windows(m.Session)) != 3 {
-		t.Fatal("duplicate grouped reviews")
+	if len(f.a.windows(m.Session)) != 2 {
+		t.Fatal("duplicate review windows")
 	}
 	f.mustCLI("status", "feat/shared", "--fields", "repo,state,commits,path")
 	out, err := execute("", "tmux", "list-panes", "-s", "-t", m.Session, "-F", "#{pane_current_path}")
@@ -195,6 +186,13 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 			t.Fatalf("missing pane for %s: %s", r.Alias, out)
 		}
 	}
+	// Starting again brings the builder back in place of the reviewers.
+	f.mustCLI("start", "feat/shared", "api", "web")
+	builder = f.a.windows(m.Session)["build"]
+	if builder == "" || f.a.windows(m.Session)["review"] != "" || index(builder) != position {
+		t.Fatal("builder did not replace the review window", f.a.windows(m.Session))
+	}
+	checkWindow("build", prIcon+" "+m.Branch, 2)
 	sessions, err := execute("", "tmux", "list-sessions", "-F", "#{session_name}")
 	if err != nil || strings.TrimSpace(sessions) != "current" {
 		t.Fatalf("unexpected sessions: %q %v", sessions, err)
@@ -253,6 +251,31 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 	}
 	f.mustCLI("remove", "feat/shared")
 	t.Log("real group removal, branch retention, and unrelated window preservation passed")
+
+	// Debug from the root directory, then start one repository in the same place.
+	f.mustCLI("debug", "fix/debugged")
+	debugWindow := f.a.windows("current")["debug"]
+	debugPosition := index(debugWindow)
+	checkWindow("debug", debugIcon+" fix/debugged", 1)
+	if path, _ := execute("", "tmux", "display-message", "-p", "-t", debugWindow, "#{pane_current_path}"); strings.TrimSpace(path) != f.root {
+		t.Fatalf("debug window opened in %q", path)
+	}
+	f.mustCLI("start", "fix/debugged", "api")
+	debugged, err := load(f.config(), "fix/debugged")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkAgent("codex", debugged.Repos[0].Path)
+	builder = f.a.windows(debugged.Session)["build"]
+	if builder == "" || f.a.windows(debugged.Session)["debug"] != "" || index(builder) != debugPosition {
+		t.Fatal("builder did not replace the debug window", f.a.windows(debugged.Session))
+	}
+	name, _ := execute("", "tmux", "display-message", "-p", "-t", builder, "#{window_name}")
+	if strings.TrimSpace(name) != prIcon+" api:fix/debugged" {
+		t.Fatalf("single-repository builder named %q", name)
+	}
+	f.mustCLI("remove", "fix/debugged", "--force")
+	t.Log("debug to single-repository start in place passed")
 
 	// Exercise the installed CLI process from a window it must close itself.
 	// Closing that terminal must not interrupt final manifest cleanup.

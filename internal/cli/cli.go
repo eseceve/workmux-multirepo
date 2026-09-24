@@ -114,11 +114,17 @@ func (a *app) start(c *config, o options) error {
 	var m *manifest
 	var records []repoState
 	var err error
+	session := sessionName(c, o.branch)
 	if existing {
 		m, err = load(c, o.branch)
 		if err != nil {
 			return err
 		}
+		if m.Phase == "debug" {
+			existing, session = false, m.Session
+		}
+	}
+	if existing {
 		if m.Phase == "removing" {
 			return fail("Removal is incomplete.", "Repeat wmm remove for this branch to finish cleanup.")
 		}
@@ -168,10 +174,10 @@ func (a *app) start(c *config, o options) error {
 		if err != nil {
 			return err
 		}
-		if err = os.Mkdir(dir, 0755); err != nil {
+		if err = os.Mkdir(dir, 0755); err != nil && !(m != nil && os.IsExist(err)) {
 			return err
 		}
-		m = &manifest{Version: 1, Branch: o.branch, Phase: "provisioning", Repos: records, Objective: o.prompt, Session: sessionName(c, o.branch)}
+		m = &manifest{Version: 1, Branch: o.branch, Phase: "provisioning", Repos: records, Objective: o.prompt, Session: session}
 		if err = save(c, m); err != nil {
 			return err
 		}

@@ -799,3 +799,16 @@ func TestRepeatedDebugReusesChangeWindow(t *testing.T) {
 		t.Fatal(f.windows)
 	}
 }
+func TestStartAfterDebugReplacesChangeWindowWithBuilder(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("debug", "feat/shared")
+	position := slices.Index(f.order, f.windows["debug"])
+	f.mustCLI("start", "feat/shared", "api", "web")
+	build := f.windows["build"]
+	if build == "" || f.windows["debug"] != "" || slices.Index(f.order, build) != position {
+		t.Fatal(f.windows, f.order)
+	}
+	if m := f.manifest(); m.Phase != "implementation" || len(m.Repos) != 2 {
+		t.Fatal(m)
+	}
+}

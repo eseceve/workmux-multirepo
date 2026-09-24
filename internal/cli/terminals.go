@@ -178,8 +178,12 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 	if err := a.nameBuilder(build, m.Branch); err != nil {
 		return err
 	}
-	if review := active["review"]; review != "" {
-		if _, err := a.command("", "tmux", "swap-window", "-s", build, "-t", review); err != nil {
+	previous := active["review"]
+	if previous == "" {
+		previous = active["debug"]
+	}
+	if previous != "" {
+		if _, err := a.command("", "tmux", "swap-window", "-s", build, "-t", previous); err != nil {
 			return err
 		}
 	}
@@ -187,9 +191,9 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 	if err := save(c, m); err != nil {
 		return err
 	}
-	// The invoking pane may live in a review window, so close them last.
+	// The invoking pane may live in a replaced window, so close them last.
 	for name, id := range active {
-		if isReview(name) {
+		if name == "debug" || isReview(name) {
 			if _, err := a.command("", "tmux", "kill-window", "-t", id); err != nil {
 				return err
 			}

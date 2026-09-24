@@ -86,14 +86,7 @@ func (a *app) prerequisites(c *config) error {
 	}
 	return nil
 }
-func hasReviews(windows map[string]string) bool {
-	for name := range windows {
-		if name == "review" || strings.HasPrefix(name, "review-") {
-			return true
-		}
-	}
-	return false
-}
+func isReview(role string) bool { return role == "review" || strings.HasPrefix(role, "review-") }
 
 // Workmux requires a Git worktree to launch an agent. This empty local repository
 // gives the shared workspace that context without adopting any source checkout.
@@ -161,9 +154,6 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 		return err
 	}
 	active := a.managedWindows(c, m)
-	if hasReviews(active) {
-		return fail("Review windows are still open.", "Close the review windows before reopening the shared builder.")
-	}
 	if active["build"] != "" {
 		return a.nameBuilder(active["build"], m.Branch)
 	}
@@ -184,12 +174,26 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 	if err := a.openAgent(dir, filepath.Base(dir), m.Session, "build", prompt, configPath, dir); err != nil {
 		return err
 	}
-	if err := a.nameBuilder(a.managedWindows(c, m)["build"], m.Branch); err != nil {
+	build := a.managedWindows(c, m)["build"]
+	if err := a.nameBuilder(build, m.Branch); err != nil {
 		return err
+	}
+	if review := active["review"]; review != "" {
+		if _, err := a.command("", "tmux", "swap-window", "-s", build, "-t", review); err != nil {
+			return err
+		}
 	}
 	m.Phase = "implementation"
 	if err := save(c, m); err != nil {
 		return err
+	}
+	// The invoking pane may live in a review window, so close them last.
+	for name, id := range active {
+		if isReview(name) {
+			if _, err := a.command("", "tmux", "kill-window", "-t", id); err != nil {
+				return err
+			}
+		}
 	}
 	a.focus(m.Session)
 	return nil

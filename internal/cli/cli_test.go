@@ -27,6 +27,7 @@ type fixture struct {
 	paneRepos       map[string]string
 	currentWindow   string
 	nextWindow      int
+	order           []string
 	failAlias       string
 	failAfterCreate bool
 	failRemoveAlias string
@@ -131,6 +132,7 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 	if len(args) >= 2 && args[0] == "workmux" && args[1] == "open" {
 		f.nextWindow++
 		f.windows["wmm-"+flagValue(args, "--target-name")] = fmt.Sprintf("@%d", f.nextWindow)
+		f.order = append(f.order, fmt.Sprintf("@%d", f.nextWindow))
 		f.panes[fmt.Sprintf("%%%d", f.nextWindow)] = fmt.Sprintf("@%d", f.nextWindow)
 		return "", nil
 	}
@@ -162,11 +164,7 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 				}
 			}
 			if !remaining {
-				for name, id := range f.windows {
-					if id == old {
-						delete(f.windows, name)
-					}
-				}
+				f.closeWindow(old)
 			}
 
 		case "list-windows":
@@ -182,13 +180,16 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 			f.nextWindow++
 			id := fmt.Sprintf("@%d", f.nextWindow)
 			f.windows[flagValue(args, "-n")] = id
+			f.order = append(f.order, id)
 			return id, nil
 		case "kill-window":
-			for name, id := range f.windows {
-				if id == flagValue(args, "-t") {
-					delete(f.windows, name)
-				}
+			f.closeWindow(flagValue(args, "-t"))
+		case "swap-window":
+			source, target := slices.Index(f.order, flagValue(args, "-s")), slices.Index(f.order, flagValue(args, "-t"))
+			if source < 0 || target < 0 {
+				return "", errors.New("can't find window")
 			}
+			f.order[source], f.order[target] = f.order[target], f.order[source]
 		case "set-window-option":
 			if len(args) > 5 && args[4] == "@wmm_workspace" {
 				f.owners[args[3]] = args[5]
@@ -206,6 +207,14 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 		return "", nil
 	}
 	return execute(cwd, args...)
+}
+func (f *fixture) closeWindow(window string) {
+	for name, id := range f.windows {
+		if id == window {
+			delete(f.windows, name)
+		}
+	}
+	f.order = slices.DeleteFunc(f.order, func(id string) bool { return id == window })
 }
 func (f *fixture) cli(args ...string) (int, string) {
 	f.out.Reset()
@@ -493,12 +502,19 @@ func TestReviewGroupedAndIdempotentWindows(t *testing.T) {
 	}
 
 }
-func TestBuilderRefusesLiveReviewers(t *testing.T) {
+func TestStartDuringReviewReplacesChangeWindowWithBuilder(t *testing.T) {
 	f := newFixture(t)
 	f.start()
-	f.windows["review-api"] = "@1"
-	if code, _ := f.cli("start", "feat/shared", "api", "web"); code != 1 {
-		t.Fatal(code)
+	f.mustCLI("review", "feat/shared")
+	review := f.windows["review"]
+	position := slices.Index(f.order, review)
+	f.mustCLI("start", "feat/shared", "api", "web")
+	build := f.windows["build"]
+	if build == "" || f.windows["review"] != "" || slices.Index(f.order, build) != position {
+		t.Fatal(f.windows, f.order)
+	}
+	if phase := f.manifest().Phase; phase != "implementation" {
+		t.Fatal(phase)
 	}
 }
 func TestBuilderSingleWindow(t *testing.T) {
@@ -721,8 +737,9 @@ func TestReviewReusesInvokingBuilder(t *testing.T) {
 	if f.windows["review"] != builder || len(f.windows) != 1 || len(f.panes) != 3 || f.count("workmux", "open") != 3 {
 		t.Fatal(f.windows, f.panes)
 	}
-	if code, _ := f.cli("start", "feat/shared", "api", "web"); code != 1 {
-		t.Fatal("builder reopened during review")
+	f.mustCLI("start", "feat/shared", "api", "web")
+	if f.windows["review"] != "" || f.windows["build"] == "" || len(f.windows) != 1 {
+		t.Fatal("builder did not replace the review window", f.windows)
 	}
 }
 

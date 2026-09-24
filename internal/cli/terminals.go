@@ -119,7 +119,7 @@ func (a *app) openAgent(dir, handle, session, role, prompt, configPath, owner st
 	var placeholder string
 	var err error
 	if len(before) == 0 {
-		placeholder, err = a.command(dir, "tmux", "new-session", "-d", "-P", "-F", "#{window_id}", "-s", session, "-n", "starting", "-c", dir)
+		placeholder, err = a.newSession(session, "starting", dir)
 		if err != nil {
 			return err
 		}
@@ -147,10 +147,7 @@ func (a *app) openAgent(dir, handle, session, role, prompt, configPath, owner st
 			continue
 		}
 		opened = true
-		if _, err = a.command("", "tmux", "set-window-option", "-t", id, "@wmm_workspace", owner); err != nil {
-			return err
-		}
-		if _, err = a.command("", "tmux", "set-window-option", "-t", id, "@wmm_role", role); err != nil {
+		if err = a.tagWindow(id, owner, role); err != nil {
 			return err
 		}
 	}
@@ -160,6 +157,17 @@ func (a *app) openAgent(dir, handle, session, role, prompt, configPath, owner st
 		}
 	}
 	return openErr
+}
+
+func (a *app) newSession(session, name, dir string) (string, error) {
+	return a.command(dir, "tmux", "new-session", "-d", "-P", "-F", "#{window_id}", "-s", session, "-n", name, "-c", dir)
+}
+func (a *app) tagWindow(window, owner, role string) error {
+	if _, err := a.command("", "tmux", "set-window-option", "-t", window, "@wmm_workspace", owner); err != nil {
+		return err
+	}
+	_, err := a.command("", "tmux", "set-window-option", "-t", window, "@wmm_role", role)
+	return err
 }
 
 func (a *app) openBuilder(c *config, m *manifest, prompt string) error {

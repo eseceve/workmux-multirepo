@@ -53,18 +53,15 @@ func (a *app) debug(c *config, o options) (err error) {
 }
 
 func (a *app) openShell(c *config, m *manifest, name string) (string, error) {
-	args := []string{"tmux", "new-window", "-P", "-F", "#{window_id}", "-t", "=" + m.Session + ":", "-n", name, "-c", c.Root}
+	var window string
+	var err error
 	if len(a.windows(m.Session)) == 0 {
-		args = []string{"tmux", "new-session", "-d", "-P", "-F", "#{window_id}", "-s", m.Session, "-n", name, "-c", c.Root}
+		window, err = a.newSession(m.Session, name, c.Root)
+	} else {
+		window, err = a.command(c.Root, "tmux", "new-window", "-P", "-F", "#{window_id}", "-t", "="+m.Session+":", "-n", name, "-c", c.Root)
 	}
-	window, err := a.command(c.Root, args...)
 	if err != nil {
 		return "", err
 	}
-	for option, value := range map[string]string{"@wmm_workspace": workspace(c, m.Branch), "@wmm_role": "debug"} {
-		if _, err = a.command("", "tmux", "set-window-option", "-t", window, option, value); err != nil {
-			return "", err
-		}
-	}
-	return window, nil
+	return window, a.tagWindow(window, workspace(c, m.Branch), "debug")
 }

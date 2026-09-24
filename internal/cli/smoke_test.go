@@ -274,8 +274,13 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 	if strings.TrimSpace(name) != prIcon+" api:fix/debugged" {
 		t.Fatalf("single-repository builder named %q", name)
 	}
+	f.mustCLI("review", "fix/debugged")
+	review = f.a.windows(debugged.Session)["review"]
+	if review == "" || f.a.windows(debugged.Session)["build"] != "" || index(review) != debugPosition {
+		t.Fatal("single-repository review did not replace the builder", f.a.windows(debugged.Session))
+	}
 	f.mustCLI("remove", "fix/debugged", "--force")
-	t.Log("debug to single-repository start in place passed")
+	t.Log("debug to single-repository start and review in place passed")
 
 	// Exercise the installed CLI process from a window it must close itself.
 	// Closing that terminal must not interrupt final manifest cleanup.

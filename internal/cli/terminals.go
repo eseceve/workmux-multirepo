@@ -123,6 +123,10 @@ func (a *app) openAgent(dir, handle, session, role, prompt, configPath, owner st
 		before = a.windows(session)
 	}
 	args := []string{"workmux", "open", handle, "--mode", "window", "--parent-session", session, "--target-name", role + "-" + digest(owner, 8)}
+	// A single-repository builder already has a window on the reviewer's worktree.
+	if isReview(role) {
+		args = append(args, "--new")
+	}
 	if prompt != "" {
 		args = append(args, "--prompt", prompt)
 	}

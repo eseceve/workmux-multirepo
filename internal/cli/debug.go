@@ -44,6 +44,7 @@ func (a *app) debug(c *config, o options) error {
 	a.scalar("branch", o.branch)
 	a.scalar("phase", m.Phase)
 	a.scalar("directory", c.Root)
+	a.scalar("help", "tmux attach -t "+m.Session)
 	return nil
 }
 

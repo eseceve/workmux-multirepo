@@ -172,7 +172,7 @@ Output uses a compact [TOON](https://toonformat.dev/) subset. Progress/diagnosti
 ## Remove a change
 
 ```sh
-# Remove all of the change's worktrees, local branches, and managed windows.
+# Remove all of the change's worktrees, local branches, and its window.
 wmm remove feat/checkout
 
 # Keep the local branches and their commits.

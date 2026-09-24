@@ -55,7 +55,7 @@ func load(c *config, branch string) (*manifest, error) {
 	if err = json.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
-	if m.Version != 1 || m.Branch != branch || len(m.Repos) == 0 {
+	if m.Version != 1 || m.Branch != branch || (len(m.Repos) == 0) != (m.Phase == "debug") {
 		return nil, fail("Unsupported or mismatched workspace manifest.", "Restore the manifest from a backup; existing worktrees were preserved.")
 	}
 	return &m, nil
@@ -74,6 +74,15 @@ func lock(c *config) (func(), error) {
 	}
 	return func() { syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }, nil
 }
+func (a *app) validateBranch(c *config, branch, command string) error {
+	if strings.HasPrefix(branch, "-") {
+		return usage("Invalid branch: "+branch, help(command))
+	}
+	if _, err := a.tryGit(c.Root, "check-ref-format", "refs/heads/"+branch); err != nil {
+		return usage("Invalid branch: "+branch, help(command))
+	}
+	return nil
+}
 func (a *app) plan(c *config, branch string, aliases []string) ([]repoState, error) {
 	if len(aliases) == 0 {
 		return nil, usage("Choose at least one repository.", help("start"))
@@ -88,11 +97,8 @@ func (a *app) plan(c *config, branch string, aliases []string) ([]repoState, err
 		}
 		seen[alias] = true
 	}
-	if strings.HasPrefix(branch, "-") {
-		return nil, usage("Invalid branch: "+branch, help("start"))
-	}
-	if _, err := a.tryGit(c.Root, "check-ref-format", "refs/heads/"+branch); err != nil {
-		return nil, usage("Invalid branch: "+branch, help("start"))
+	if err := a.validateBranch(c, branch, "start"); err != nil {
+		return nil, err
 	}
 	var records []repoState
 	commons := map[string]bool{}

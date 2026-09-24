@@ -42,6 +42,9 @@ func newRoot(o *options) *cobra.Command {
 	startCmd.Flags().BoolVar(&o.dryRun, "dry-run", false, "show plan without fetching, creating, or launching")
 	startCmd.Flags().BoolVar(&o.noOpen, "no-open", false, "provision worktrees without opening a window")
 	startCmd.Flags().BoolVar(&o.fetch, "fetch", false, "fetch remote default bases before creating a new workspace (reopening keeps pinned bases)")
+	debugCmd := &cobra.Command{Use: "debug <branch>", Short: "Open a shell in the root directory to investigate a change", Args: cobra.ExactArgs(1),
+		Example: "  wmm debug fix/checkout",
+		RunE:    func(cmd *cobra.Command, args []string) error { o.command = "debug"; o.branch = args[0]; return nil }}
 	reviewCmd := &cobra.Command{Use: "review <branch>", Short: "Open reviewer panes per repository in one tmux window", Args: cobra.ExactArgs(1),
 		Example: "  wmm review feat/change\n  wmm review feat/change --prepare-pr --dry-run",
 		RunE:    func(cmd *cobra.Command, args []string) error { o.command = "review"; o.branch = args[0]; return nil }}
@@ -63,7 +66,7 @@ func newRoot(o *options) *cobra.Command {
 	removeCmd.Flags().BoolVar(&o.dryRun, "dry-run", false, "preview removal without changing files, branches, or windows")
 	removeCmd.Flags().BoolVar(&o.keepBranch, "keep-branch", false, "keep local branches and their commits")
 	removeCmd.Flags().BoolVar(&o.force, "force", false, "discard uncommitted files and unmerged commits (unless --keep-branch)")
-	root.AddCommand(initCmd, startCmd, reviewCmd, statusCmd, removeCmd)
+	root.AddCommand(initCmd, debugCmd, startCmd, reviewCmd, statusCmd, removeCmd)
 	return root
 }
 

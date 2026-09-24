@@ -71,6 +71,9 @@ func (a *app) dispatch(args []string) error {
 		}
 		defer unlock()
 	}
+	if o.command == "debug" {
+		return a.debug(c, o)
+	}
 	if o.command == "start" {
 		return a.start(c, o)
 	}

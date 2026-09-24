@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 )
 
-const debugIcon = ""
-
 func (a *app) debug(c *config, o options) error {
 	if err := a.validateBranch(c, o.branch, "debug"); err != nil {
 		return err

@@ -123,7 +123,7 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 		}
 	}
 	checkAgent("codex", dir)
-	checkWindow("build", m.Branch, 2)
+	checkWindow("build", prIcon+" "+m.Branch, 2)
 	f.mustCLI("start", "feat/shared", "api", "web")
 	closeBuilder := func() {
 		t.Helper()
@@ -136,13 +136,13 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 	write(filepath.Join(f.root, ".workmux.yaml"), "agent: "+quote(filepath.Join(bin, "opencode"))+"\nwindow_prefix: shared-\n")
 	f.mustCLI("start", "feat/shared", "api", "web")
 	checkAgent("opencode", dir)
-	checkWindow("build", m.Branch, 2)
+	checkWindow("build", prIcon+" "+m.Branch, 2)
 	// Renaming must not disable lifecycle guards.
 	if _, err = execute("", "tmux", "rename-window", "-t", f.a.windows(m.Session)["build"], "renamed"); err != nil {
 		t.Fatal(err)
 	}
 	f.mustCLI("start", "feat/shared", "api", "web")
-	checkWindow("build", m.Branch, 2)
+	checkWindow("build", prIcon+" "+m.Branch, 2)
 	builder := f.a.windows(m.Session)["build"]
 	pane, err := execute("", "tmux", "display-message", "-p", "-t", builder, "#{pane_id}")
 	if err != nil {

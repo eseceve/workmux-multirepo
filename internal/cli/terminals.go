@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+const (
+	debugIcon  = "\uead8"
+	prIcon     = "\uf407"
+	reviewIcon = "\uea70"
+)
+
 func sessionName(c *config, branch string) string { return "wmm-" + digest(c.Root+":"+branch, 12) }
 
 // Roles are tmux metadata, independent of workmux's prefix or user renames.
@@ -153,29 +159,35 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 	if err := a.bindSession(c, m, false); err != nil {
 		return err
 	}
+	owner := workspace(c, m.Branch)
+	dir, handle, name := owner, filepath.Base(owner), prIcon+" "+m.Branch
+	if len(m.Repos) == 1 {
+		dir, handle, name = m.Repos[0].Source, m.Repos[0].Handle, prIcon+" "+m.Repos[0].Alias+":"+m.Branch
+	}
 	active := a.managedWindows(c, m)
 	if active["build"] != "" {
-		return a.nameBuilder(active["build"], m.Branch)
-	}
-	dir := workspace(c, m.Branch)
-	if err := a.coordinator(dir); err != nil {
-		return err
+		return a.nameBuilder(active["build"], name)
 	}
 	// The shared builder has no single source repo. Its project config belongs
 	// beside wmm.toml; pass that original file without interpreting or rewriting it.
 	configPath := ""
-	for _, name := range []string{".workmux.yaml", ".workmux.yml"} {
-		candidate := filepath.Join(c.Root, name)
-		if exists(candidate) {
-			configPath = candidate
-			break
+	if len(m.Repos) > 1 {
+		if err := a.coordinator(owner); err != nil {
+			return err
+		}
+		for _, file := range []string{".workmux.yaml", ".workmux.yml"} {
+			candidate := filepath.Join(c.Root, file)
+			if exists(candidate) {
+				configPath = candidate
+				break
+			}
 		}
 	}
-	if err := a.openAgent(dir, filepath.Base(dir), m.Session, "build", prompt, configPath, dir); err != nil {
+	if err := a.openAgent(dir, handle, m.Session, "build", prompt, configPath, owner); err != nil {
 		return err
 	}
 	build := a.managedWindows(c, m)["build"]
-	if err := a.nameBuilder(build, m.Branch); err != nil {
+	if err := a.nameBuilder(build, name); err != nil {
 		return err
 	}
 	previous := active["review"]
@@ -202,11 +214,11 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 	a.focus(m.Session)
 	return nil
 }
-func (a *app) nameBuilder(window, branch string) error {
+func (a *app) nameBuilder(window, name string) error {
 	if window == "" {
 		return fail("Builder window was not created.", "Retry the same wmm start command.")
 	}
-	_, err := a.command("", "tmux", "rename-window", "-t", window, branch)
+	_, err := a.command("", "tmux", "rename-window", "-t", window, name)
 	return err
 }
 func (a *app) focus(session string) {

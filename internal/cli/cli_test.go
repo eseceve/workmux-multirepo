@@ -812,3 +812,32 @@ func TestStartAfterDebugReplacesChangeWindowWithBuilder(t *testing.T) {
 		t.Fatal(m)
 	}
 }
+func TestSingleRepositoryBuilderRunsInItsWorktree(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("start", "feat/shared", "api")
+	m := f.manifest()
+	var opened, renamed []string
+	for _, args := range f.calls {
+		if len(args) > 1 && args[0] == "workmux" && args[1] == "open" {
+			opened = args
+		}
+		if len(args) > 1 && args[0] == "tmux" && args[1] == "rename-window" {
+			renamed = args
+		}
+	}
+	if opened == nil || opened[2] != m.Repos[0].Handle || f.windows["build"] == "" {
+		t.Fatal(opened, f.windows)
+	}
+	if renamed[len(renamed)-1] != " api:feat/shared" {
+		t.Fatal(renamed)
+	}
+}
+func TestMultiRepositoryBuilderWindowName(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("start", "feat/shared", "api", "web")
+	for _, args := range f.calls {
+		if len(args) > 1 && args[0] == "tmux" && args[1] == "rename-window" && args[len(args)-1] != " feat/shared" {
+			t.Fatal(args)
+		}
+	}
+}

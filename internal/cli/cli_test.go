@@ -893,3 +893,21 @@ func TestReviewRefusesChangeInDebug(t *testing.T) {
 		t.Fatal(f.windows)
 	}
 }
+func (f *fixture) reviewerConfigs() []string {
+	var configs []string
+	for _, args := range f.calls {
+		if len(args) > 1 && args[0] == "workmux" && args[1] == "open" && strings.HasPrefix(flagValue(args, "--target-name"), "review-") {
+			configs = append(configs, flagValue(args, "--config"))
+		}
+	}
+	return configs
+}
+func TestReviewersUseWorkmuxConfigFromFlag(t *testing.T) {
+	f := newFixture(t)
+	f.start()
+	f.mustCLI("review", "feat/shared", "--workmux-config", "review.yaml")
+	want := filepath.Join(f.root, "review.yaml")
+	if configs := f.reviewerConfigs(); !slices.Equal(configs, []string{want, want}) {
+		t.Fatal(configs)
+	}
+}

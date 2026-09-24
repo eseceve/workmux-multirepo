@@ -263,7 +263,7 @@ func (a *app) layoutReviewers(window string) error {
 	return err
 }
 
-func (a *app) openReviews(c *config, m *manifest, preparePR bool) error {
+func (a *app) openReviews(c *config, m *manifest, preparePR bool, configPath string) error {
 	for _, r := range m.Repos {
 		if !r.Ready {
 			return fail("Provisioning is incomplete.", "Rerun wmm start with the original branch and repositories first.")
@@ -314,7 +314,7 @@ func (a *app) openReviews(c *config, m *manifest, preparePR bool) error {
 			if preparePR {
 				prompt = fmt.Sprintf("Review %s against base commit %s (%s), including staged, unstaged, and untracked changes. Prepare a local PR title and description including cross-repo dependencies and validation. Do not push or publish the PR; wait for explicit user authorization.", r.Alias, r.BaseCommit, r.Base)
 			}
-			if err = a.openAgent(r.Source, r.Handle, m.Session, role, prompt, "", dir); err != nil {
+			if err = a.openAgent(r.Source, r.Handle, m.Session, role, prompt, configPath, dir); err != nil {
 				return err
 			}
 			source = a.managedWindows(c, m)[role]

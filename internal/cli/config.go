@@ -16,6 +16,14 @@ type config struct {
 	Path, Root, State string            `toml:"-"`
 }
 
+func (a *app) reviewConfig(o options) string {
+	path := o.workmuxConfig
+	if path != "" && !filepath.IsAbs(path) {
+		path = filepath.Join(a.cwd, path)
+	}
+	return path
+}
+
 func (a *app) discover(explicit string) (*config, error) {
 	path := explicit
 	if path == "" {

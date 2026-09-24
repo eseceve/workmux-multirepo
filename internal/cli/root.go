@@ -12,6 +12,7 @@ var Version = "dev"
 
 type options struct {
 	command, config, branch, prompt, fields string
+	workmuxConfig                           string
 	repos                                   []string
 	dryRun, noOpen, preparePR, help, fetch  bool
 	force, keepBranch                       bool
@@ -50,6 +51,7 @@ func newRoot(o *options) *cobra.Command {
 		RunE:    func(cmd *cobra.Command, args []string) error { o.command = "review"; o.branch = args[0]; return nil }}
 	reviewCmd.Flags().BoolVar(&o.preparePR, "prepare-pr", false, "draft PR text locally; never publish automatically")
 	reviewCmd.Flags().BoolVar(&o.dryRun, "dry-run", false, "show review targets without opening agents")
+	reviewCmd.Flags().StringVar(&o.workmuxConfig, "workmux-config", "", "workmux config file for reviewers (default: review_workmux_config in wmm's user config)")
 	statusCmd := &cobra.Command{Use: "status [branch]", Short: "Show changes or repository state for one change", Args: cobra.MaximumNArgs(1),
 		Example: "  wmm status\n  wmm status feat/change --fields repo,state,path",
 		RunE: func(cmd *cobra.Command, args []string) error {

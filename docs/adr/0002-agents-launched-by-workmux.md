@@ -1,6 +1,6 @@
 # Agents are launched only by workmux
 
-Wmm never builds agent commands or reads workmux's configuration; builders and reviewers come from workmux's panes and `agent` settings, and debug windows open a plain shell because workmux needs a worktree to launch an agent. The only exception is `review_workmux_config` (flag, then `~/.config/wmm/config.toml`), a path wmm passes through as `workmux --config` so reviews can use a different agent or layout than implementation.
+Wmm never builds agent commands or reads workmux's configuration; builders and reviewers come from workmux's panes and `agent` settings, and debug windows open a plain shell because workmux needs a worktree to launch an agent. Wmm only chooses which file workmux reads, passing it unchanged as `workmux --config`: a multi-repository builder uses the root directory's `.workmux.yaml`, and reviewers use `review_workmux_config` (flag, then `~/.config/wmm/config.toml`) so reviews can use a different agent or layout than implementation.
 
 ## Consequences
 

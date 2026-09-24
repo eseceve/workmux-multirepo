@@ -87,6 +87,9 @@ func (a *app) dispatch(args []string) error {
 	if m.Phase == "removing" {
 		return fail("Removal is incomplete.", "Repeat wmm remove for this branch to finish cleanup.")
 	}
+	if m.Phase == "debug" {
+		return fail("Change "+o.branch+" has no worktrees to review.", "Run wmm start "+o.branch+" <repos...> first.")
+	}
 	if o.dryRun {
 		a.scalar("branch", o.branch)
 		rows := [][]any{}

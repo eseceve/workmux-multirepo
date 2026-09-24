@@ -883,3 +883,13 @@ func TestReviewersTiledFromFivePanes(t *testing.T) {
 		t.Fatal(layout)
 	}
 }
+func TestReviewRefusesChangeInDebug(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("debug", "feat/shared")
+	if code, _ := f.cli("review", "feat/shared"); code != 1 {
+		t.Fatal(code)
+	}
+	if f.windows["debug"] == "" || f.count("workmux", "open") != 0 {
+		t.Fatal(f.windows)
+	}
+}

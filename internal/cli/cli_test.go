@@ -28,6 +28,7 @@ type fixture struct {
 	nextWindow      int
 	order           []string
 	panesPerWindow  int
+	failTmux        string
 	failAlias       string
 	failAfterCreate bool
 	failRemoveAlias string
@@ -140,6 +141,9 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 		return "", nil
 	}
 	if len(args) >= 2 && args[0] == "tmux" {
+		if args[1] == f.failTmux {
+			return "", errors.New("simulated tmux failure")
+		}
 		switch args[1] {
 		case "display-message":
 			return "current", nil
@@ -994,5 +998,15 @@ func TestReplacedWindowClosesAfterFocus(t *testing.T) {
 	f.mustCLI("review", "feat/shared")
 	if last := f.lastCall(); !slices.Equal(last, []string{"tmux", "kill-window", "-t", build}) {
 		t.Fatal(last)
+	}
+}
+func TestFailedDebugLeavesNoChange(t *testing.T) {
+	f := newFixture(t)
+	f.failTmux = "new-session"
+	if code, _ := f.cli("debug", "feat/shared"); code != 1 {
+		t.Fatal(code)
+	}
+	if exists(workspace(f.config(), "feat/shared")) {
+		t.Fatal("workspace left behind")
 	}
 }

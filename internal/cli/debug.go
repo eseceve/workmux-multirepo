@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 )
 
-func (a *app) debug(c *config, o options) error {
+func (a *app) debug(c *config, o options) (err error) {
 	if err := a.validateBranch(c, o.branch, "debug"); err != nil {
 		return err
 	}
@@ -21,26 +21,30 @@ func (a *app) debug(c *config, o options) error {
 		}
 		m = existing
 	} else {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err = os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
-		if err := save(c, m); err != nil {
+		defer func() {
+			if err != nil {
+				os.RemoveAll(dir)
+			}
+		}()
+		if err = save(c, m); err != nil {
 			return err
 		}
 	}
-	if err := a.bindSession(c, m, false); err != nil {
+	if err = a.bindSession(c, m, false); err != nil {
 		return err
 	}
 	window := a.managedWindows(c, m)["debug"]
 	if window == "" {
-		var err error
 		if window, err = a.openShell(c, m, debugIcon+" "+o.branch); err != nil {
 			return err
 		}
-	} else if _, err := a.command("", "tmux", "select-window", "-t", window); err != nil {
+	}
+	if err = a.show(window, m.Session); err != nil {
 		return err
 	}
-	a.focus(m.Session)
 	a.scalar("branch", o.branch)
 	a.scalar("phase", m.Phase)
 	a.scalar("directory", c.Root)

@@ -790,3 +790,12 @@ func TestDebugRefusesChangeWithWorktrees(t *testing.T) {
 		t.Fatal(m.Phase, f.windows)
 	}
 }
+func TestRepeatedDebugReusesChangeWindow(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("debug", "feat/shared")
+	window := f.windows["debug"]
+	f.mustCLI("debug", "feat/shared")
+	if len(f.windows) != 1 || f.windows["debug"] != window || f.count("tmux", "new-session")+f.count("tmux", "new-window") != 1 {
+		t.Fatal(f.windows)
+	}
+}

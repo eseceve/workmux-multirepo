@@ -47,6 +47,7 @@ func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	t.Setenv("TMUX", "")
 	t.Setenv("TMUX_PANE", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	root, err := canonical(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -908,6 +909,39 @@ func TestReviewersUseWorkmuxConfigFromFlag(t *testing.T) {
 	f.mustCLI("review", "feat/shared", "--workmux-config", "review.yaml")
 	want := filepath.Join(f.root, "review.yaml")
 	if configs := f.reviewerConfigs(); !slices.Equal(configs, []string{want, want}) {
+		t.Fatal(configs)
+	}
+}
+func TestReviewersUseWorkmuxConfigFromUserConfig(t *testing.T) {
+	f := newFixture(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if err := os.MkdirAll(filepath.Join(home, ".config", "wmm"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "wmm", "config.toml"), []byte("review_workmux_config = '~/review.yaml'\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f.start()
+	f.mustCLI("review", "feat/shared")
+	want := filepath.Join(home, "review.yaml")
+	if configs := f.reviewerConfigs(); !slices.Equal(configs, []string{want, want}) {
+		t.Fatal(configs)
+	}
+}
+func TestReviewWorkmuxConfigFlagOverridesUserConfig(t *testing.T) {
+	f := newFixture(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "wmm"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "wmm", "config.toml"), []byte("review_workmux_config = '/ignored.yaml'\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f.start()
+	f.mustCLI("review", "feat/shared", "--workmux-config", "/chosen.yaml")
+	if configs := f.reviewerConfigs(); !slices.Equal(configs, []string{"/chosen.yaml", "/chosen.yaml"}) {
 		t.Fatal(configs)
 	}
 }

@@ -103,7 +103,11 @@ func (a *app) dispatch(args []string) error {
 	if err = a.prerequisites(c); err != nil {
 		return err
 	}
-	if err = a.openReviews(c, m, o.preparePR, a.reviewConfig(o)); err != nil {
+	reviewConfig, err := a.reviewConfig(o)
+	if err != nil {
+		return err
+	}
+	if err = a.openReviews(c, m, o.preparePR, reviewConfig); err != nil {
 		return err
 	}
 	a.scalar("branch", o.branch)

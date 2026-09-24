@@ -16,12 +16,41 @@ type config struct {
 	Path, Root, State string            `toml:"-"`
 }
 
-func (a *app) reviewConfig(o options) string {
-	path := o.workmuxConfig
-	if path != "" && !filepath.IsAbs(path) {
-		path = filepath.Join(a.cwd, path)
+type userConfig struct {
+	ReviewWorkmuxConfig string `toml:"review_workmux_config"`
+}
+
+func (a *app) reviewConfig(o options) (string, error) {
+	if o.workmuxConfig != "" {
+		if filepath.IsAbs(o.workmuxConfig) {
+			return o.workmuxConfig, nil
+		}
+		return filepath.Join(a.cwd, o.workmuxConfig), nil
 	}
-	return path
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		dir = filepath.Join(home, ".config")
+	}
+	path := filepath.Join(dir, "wmm", "config.toml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var u userConfig
+	if err = toml.NewDecoder(strings.NewReader(string(data))).DisallowUnknownFields().Decode(&u); err != nil {
+		return "", usage("Invalid "+path+": "+err.Error(), "Only review_workmux_config is supported.")
+	}
+	if rest, ok := strings.CutPrefix(u.ReviewWorkmuxConfig, "~/"); ok {
+		return filepath.Join(home, rest), nil
+	}
+	return u.ReviewWorkmuxConfig, nil
 }
 
 func (a *app) discover(explicit string) (*config, error) {

@@ -20,19 +20,30 @@ type userConfig struct {
 	ReviewWorkmuxConfig string `toml:"review_workmux_config"`
 }
 
+func resolvePath(base, path string) (string, error) {
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(home, rest)
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(base, path)
+	}
+	return path, nil
+}
+
 func (a *app) reviewConfig(o options) (string, error) {
 	if o.workmuxConfig != "" {
-		if filepath.IsAbs(o.workmuxConfig) {
-			return o.workmuxConfig, nil
-		}
-		return filepath.Join(a.cwd, o.workmuxConfig), nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+		return resolvePath(a.cwd, o.workmuxConfig)
 	}
 	dir := os.Getenv("XDG_CONFIG_HOME")
 	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
 		dir = filepath.Join(home, ".config")
 	}
 	path := filepath.Join(dir, "wmm", "config.toml")
@@ -47,10 +58,10 @@ func (a *app) reviewConfig(o options) (string, error) {
 	if err = toml.NewDecoder(strings.NewReader(string(data))).DisallowUnknownFields().Decode(&u); err != nil {
 		return "", usage("Invalid "+path+": "+err.Error(), "Only review_workmux_config is supported.")
 	}
-	if rest, ok := strings.CutPrefix(u.ReviewWorkmuxConfig, "~/"); ok {
-		return filepath.Join(home, rest), nil
+	if u.ReviewWorkmuxConfig == "" {
+		return "", nil
 	}
-	return u.ReviewWorkmuxConfig, nil
+	return resolvePath(filepath.Dir(path), u.ReviewWorkmuxConfig)
 }
 
 func (a *app) discover(explicit string) (*config, error) {
@@ -70,8 +81,9 @@ func (a *app) discover(explicit string) (*config, error) {
 	if path == "" {
 		return nil, fail("No wmm.toml found.", "Run wmm init in the directory containing your repositories.")
 	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(a.cwd, path)
+	path, err := resolvePath(a.cwd, path)
+	if err != nil {
+		return nil, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -99,15 +111,9 @@ func (a *app) discover(explicit string) (*config, error) {
 		if !aliasPattern.MatchString(name) || path == "" {
 			return nil, usage("Invalid repository alias or path: "+name, "Use api = './my-api' under [repos].")
 		}
-		if strings.HasPrefix(path, "~/") {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, err
-			}
-			path = filepath.Join(home, path[2:])
-		}
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(c.Root, path)
+		path, err := resolvePath(c.Root, path)
+		if err != nil {
+			return nil, err
 		}
 		if real, err := canonical(path); err == nil {
 			path = real
@@ -121,8 +127,9 @@ func (a *app) initialize(o options) error {
 	if path == "" {
 		path = "wmm.toml"
 	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(a.cwd, path)
+	path, err := resolvePath(a.cwd, path)
+	if err != nil {
+		return err
 	}
 	if exists(path) {
 		a.scalar("config", path)

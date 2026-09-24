@@ -954,3 +954,12 @@ func TestSingleRepositoryReviewerLayoutFollowsPaneCount(t *testing.T) {
 		t.Fatal(layout)
 	}
 }
+func TestRepeatedStartFocusesBuilder(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("start", "feat/shared", "api", "web")
+	f.calls = nil
+	f.mustCLI("start", "feat/shared", "api", "web")
+	if f.count("tmux", "select-window") != 1 || f.count("workmux", "open") != 0 {
+		t.Fatal(f.calls)
+	}
+}

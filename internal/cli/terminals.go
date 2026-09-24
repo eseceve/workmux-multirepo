@@ -170,7 +170,10 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 	}
 	active := a.managedWindows(c, m)
 	if active["build"] != "" {
-		return a.nameBuilder(active["build"], name)
+		if err := a.nameBuilder(active["build"], name); err != nil {
+			return err
+		}
+		return a.show(active["build"], m.Session)
 	}
 	// The shared builder has no single source repo. Its project config belongs
 	// beside wmm.toml; pass that original file without interpreting or rewriting it.
@@ -224,6 +227,13 @@ func (a *app) nameBuilder(window, name string) error {
 	}
 	_, err := a.command("", "tmux", "rename-window", "-t", window, name)
 	return err
+}
+func (a *app) show(window, session string) error {
+	if _, err := a.command("", "tmux", "select-window", "-t", window); err != nil {
+		return err
+	}
+	a.focus(session)
+	return nil
 }
 func (a *app) focus(session string) {
 	if os.Getenv("TMUX") != "" {

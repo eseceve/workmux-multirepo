@@ -250,6 +250,19 @@ func (a *app) reviewPanes(window string) (map[string]string, error) {
 	return panes, nil
 }
 
+func (a *app) layoutReviewers(window string) error {
+	panes, err := a.reviewPanes(window)
+	if err != nil {
+		return err
+	}
+	layout := "even-horizontal"
+	if len(panes) > 4 {
+		layout = "tiled"
+	}
+	_, err = a.command("", "tmux", "select-layout", "-t", window, layout)
+	return err
+}
+
 func (a *app) openReviews(c *config, m *manifest, preparePR bool) error {
 	for _, r := range m.Repos {
 		if !r.Ready {
@@ -330,7 +343,7 @@ func (a *app) openReviews(c *config, m *manifest, preparePR bool) error {
 				if _, err = a.command("", "tmux", "join-pane", "-d", "-s", pane, "-t", target, "-l", "1"); err != nil {
 					return err
 				}
-				if _, err = a.command("", "tmux", "select-layout", "-t", target, "tiled"); err != nil {
+				if err = a.layoutReviewers(target); err != nil {
 					return err
 				}
 			}

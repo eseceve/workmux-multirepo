@@ -27,6 +27,7 @@ type fixture struct {
 	paneRepos       map[string]string
 	nextWindow      int
 	order           []string
+	panesPerWindow  int
 	failAlias       string
 	failAfterCreate bool
 	failRemoveAlias string
@@ -132,7 +133,9 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 		f.nextWindow++
 		f.windows["wmm-"+flagValue(args, "--target-name")] = fmt.Sprintf("@%d", f.nextWindow)
 		f.order = append(f.order, fmt.Sprintf("@%d", f.nextWindow))
-		f.panes[fmt.Sprintf("%%%d", f.nextWindow)] = fmt.Sprintf("@%d", f.nextWindow)
+		for i := 0; i < max(f.panesPerWindow, 1); i++ {
+			f.panes[fmt.Sprintf("%%%d.%d", f.nextWindow, i)] = fmt.Sprintf("@%d", f.nextWindow)
+		}
 		return "", nil
 	}
 	if len(args) >= 2 && args[0] == "tmux" {
@@ -852,5 +855,31 @@ func TestReviewReplacesImplementationWindow(t *testing.T) {
 	}
 	if !renamed || f.manifest().Phase != "review" {
 		t.Fatal("review window not named", f.manifest().Phase)
+	}
+}
+func (f *fixture) lastLayout() string {
+	for i := len(f.calls) - 1; i >= 0; i-- {
+		if args := f.calls[i]; len(args) > 1 && args[0] == "tmux" && args[1] == "select-layout" {
+			return args[len(args)-1]
+		}
+	}
+	return ""
+}
+func TestReviewersSideBySideUpToFourPanes(t *testing.T) {
+	f := newFixture(t)
+	f.panesPerWindow = 2
+	f.start()
+	f.mustCLI("review", "feat/shared")
+	if layout := f.lastLayout(); layout != "even-horizontal" {
+		t.Fatal(layout)
+	}
+}
+func TestReviewersTiledFromFivePanes(t *testing.T) {
+	f := newFixture(t)
+	f.panesPerWindow = 3
+	f.start()
+	f.mustCLI("review", "feat/shared")
+	if layout := f.lastLayout(); layout != "tiled" {
+		t.Fatal(layout)
 	}
 }

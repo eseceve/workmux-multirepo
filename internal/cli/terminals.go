@@ -3,8 +3,11 @@ package cli
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -197,28 +200,37 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 	if err := a.nameBuilder(build, name); err != nil {
 		return err
 	}
-	previous := active["review"]
-	if previous == "" {
-		previous = active["debug"]
+	m.Phase = "implementation"
+	return a.replaceWindow(c, m, build)
+}
+
+// The invoking pane usually lives in a replaced window: close those last and
+// ignore the hangup their shells forward, so wmm is not interrupted.
+func (a *app) replaceWindow(c *config, m *manifest, window string) error {
+	active := a.managedWindows(c, m)
+	var previous []string
+	for _, role := range append([]string{"build", "review", "debug"}, keys(active)...) {
+		if id := active[role]; id != "" && id != window && !slices.Contains(previous, id) {
+			previous = append(previous, id)
+		}
 	}
-	if previous != "" {
-		if _, err := a.command("", "tmux", "swap-window", "-s", build, "-t", previous); err != nil {
+	if len(previous) > 0 {
+		if _, err := a.command("", "tmux", "swap-window", "-s", window, "-t", previous[0]); err != nil {
 			return err
 		}
 	}
-	m.Phase = "implementation"
 	if err := save(c, m); err != nil {
 		return err
 	}
-	// The invoking pane may live in a replaced window, so close them last.
-	for name, id := range active {
-		if name == "debug" || isReview(name) {
-			if _, err := a.command("", "tmux", "kill-window", "-t", id); err != nil {
-				return err
-			}
+	if err := a.show(window, m.Session); err != nil {
+		return err
+	}
+	signal.Ignore(syscall.SIGHUP, syscall.SIGPIPE)
+	for _, id := range previous {
+		if _, err := a.command("", "tmux", "kill-window", "-t", id); err != nil {
+			return err
 		}
 	}
-	a.focus(m.Session)
 	return nil
 }
 func (a *app) nameBuilder(window, name string) error {
@@ -372,18 +384,5 @@ func (a *app) openReviews(c *config, m *manifest, preparePR bool, configPath str
 	if _, err := a.command("", "tmux", "rename-window", "-t", target, reviewIcon+" "+m.Branch); err != nil {
 		return err
 	}
-	if build := active["build"]; build != "" {
-		if _, err := a.command("", "tmux", "swap-window", "-s", target, "-t", build); err != nil {
-			return err
-		}
-		// The invoking pane may live in the builder's window, so close it last.
-		if _, err := a.command("", "tmux", "kill-window", "-t", build); err != nil {
-			return err
-		}
-	}
-	if _, err := a.command("", "tmux", "select-window", "-t", target); err != nil {
-		return err
-	}
-	a.focus(m.Session)
-	return nil
+	return a.replaceWindow(c, m, target)
 }

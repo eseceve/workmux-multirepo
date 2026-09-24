@@ -117,3 +117,11 @@ func TestRemoveIncompleteStart(t *testing.T) {
 		t.Fatal("incomplete workspace remains")
 	}
 }
+func TestRemoveChangeInDebug(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("debug", "feat/shared")
+	f.mustCLI("remove", "feat/shared")
+	if len(f.windows) != 0 || exists(workspace(f.config(), "feat/shared")) {
+		t.Fatal(f.windows)
+	}
+}

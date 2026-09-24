@@ -772,11 +772,21 @@ func TestDebugOpensChangeWindowInRootDirectory(t *testing.T) {
 	opened := f.calls[slices.IndexFunc(f.calls, func(args []string) bool {
 		return len(args) > 1 && args[0] == "tmux" && (args[1] == "new-session" || args[1] == "new-window")
 	})]
-	if flagValue(opened, "-c") != f.root || flagValue(opened, "-n") != " feat/shared" {
+	if flagValue(opened, "-c") != f.root || flagValue(opened, "-n") != "\uead8 feat/shared" {
 		t.Fatal(opened)
 	}
 	m := f.manifest()
 	if m.Phase != "debug" || len(m.Repos) != 0 {
 		t.Fatal(m)
+	}
+}
+func TestDebugRefusesChangeWithWorktrees(t *testing.T) {
+	f := newFixture(t)
+	f.start()
+	if code, _ := f.cli("debug", "feat/shared"); code != 1 {
+		t.Fatal(code)
+	}
+	if m := f.manifest(); len(m.Repos) != 2 || len(f.windows) != 0 {
+		t.Fatal(m.Phase, f.windows)
 	}
 }

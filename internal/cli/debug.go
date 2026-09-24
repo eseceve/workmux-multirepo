@@ -1,14 +1,26 @@
 package cli
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
-const debugIcon = ""
+const debugIcon = "\uead8"
 
 func (a *app) debug(c *config, o options) error {
 	if err := a.validateBranch(c, o.branch, "debug"); err != nil {
 		return err
 	}
 	dir := workspace(c, o.branch)
+	if exists(filepath.Join(dir, "manifest.json")) {
+		existing, err := load(c, o.branch)
+		if err != nil {
+			return err
+		}
+		if existing.Phase != "debug" {
+			return fail("Change "+o.branch+" already has worktrees (phase: "+existing.Phase+").", "Use wmm start or wmm review for this change.")
+		}
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}

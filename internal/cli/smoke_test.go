@@ -320,4 +320,32 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 		t.Fatalf("removal from own terminal did not finish: %s", data)
 	}
 	t.Log("CLI removal from its own terminal completed")
+
+	// Starting from the debug shell closes the window running wmm itself.
+	f.mustCLI("debug", "fix/self-start")
+	startLog := filepath.Join(bin, "start.log")
+	shell := f.a.windows("current")["debug"]
+	command := quote(cliBin) + " --config " + quote(filepath.Join(f.root, "wmm.toml")) + " start fix/self-start api > " + quote(startLog) + " 2>&1"
+	if _, err := execute("", "tmux", "send-keys", "-t", shell, command, "Enter"); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if started, err := load(f.config(), "fix/self-start"); err == nil && started.Phase == "implementation" && f.a.windows("current")["debug"] == "" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if windows := f.a.windows("current"); windows["debug"] != "" || windows["build"] == "" {
+		data, _ := os.ReadFile(startLog)
+		t.Fatalf("start from its own debug window did not finish: %v %s", windows, data)
+	}
+	for data, _ := os.ReadFile(startLog); !bytes.Contains(data, []byte(`phase: "implementation"`)); data, _ = os.ReadFile(startLog) {
+		if time.Now().After(deadline) {
+			t.Fatalf("start was interrupted before reporting: %s", data)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	f.mustCLI("remove", "fix/self-start", "--force")
+	t.Log("CLI start from its own debug window completed")
 }

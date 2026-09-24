@@ -963,3 +963,36 @@ func TestRepeatedStartFocusesBuilder(t *testing.T) {
 		t.Fatal(f.calls)
 	}
 }
+func TestReviewAfterUnopenedStartReplacesDebugWindow(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("debug", "feat/shared")
+	position := slices.Index(f.order, f.windows["debug"])
+	f.mustCLI("start", "feat/shared", "api", "web", "--no-open")
+	f.mustCLI("review", "feat/shared")
+	review := f.windows["review"]
+	if review == "" || len(f.windows) != 1 || slices.Index(f.order, review) != position {
+		t.Fatal(f.windows, f.order)
+	}
+}
+func (f *fixture) lastCall() []string {
+	for i := len(f.calls) - 1; i >= 0; i-- {
+		if args := f.calls[i]; args[0] == "tmux" {
+			return args
+		}
+	}
+	return nil
+}
+func TestReplacedWindowClosesAfterFocus(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("debug", "feat/shared")
+	debug := f.windows["debug"]
+	f.mustCLI("start", "feat/shared", "api", "web")
+	if last := f.lastCall(); !slices.Equal(last, []string{"tmux", "kill-window", "-t", debug}) {
+		t.Fatal(last)
+	}
+	build := f.windows["build"]
+	f.mustCLI("review", "feat/shared")
+	if last := f.lastCall(); !slices.Equal(last, []string{"tmux", "kill-window", "-t", build}) {
+		t.Fatal(last)
+	}
+}

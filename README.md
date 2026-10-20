@@ -181,7 +181,12 @@ wmm remove feat/checkout --keep-branch
 # Preview, or explicitly discard unsaved files and unmerged commits.
 wmm remove feat/checkout --dry-run
 wmm remove feat/checkout --force
+
+# From inside one of the change's worktrees or its workspace, omit the branch.
+wmm remove -f
 ```
+
+Without a branch, `remove` picks the change whose worktree or workspace contains the current directory, and fails without removing anything when none does. `-f` is short for `--force`.
 
 Removal works in any phase, including a change still in debug and after an incomplete `start`. It checks every repository before making changes. By default it refuses tracked, untracked, or ignored files that would be lost, extra workspace files, and branch commits not merged into the locally recorded base. `--keep-branch` preserves commits but still protects unsaved files; combine it with `--force` to discard files while retaining branches. Remote branches are never deleted. Only windows tagged for this change are closed; unrelated windows remain open.
 

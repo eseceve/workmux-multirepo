@@ -358,3 +358,49 @@ func (a *app) provision(c *config, m *manifest) error {
 	}
 	return save(c, m)
 }
+func changes(c *config) ([]manifest, error) {
+	paths, err := filepath.Glob(filepath.Join(c.State, "*", "manifest.json"))
+	if err != nil {
+		return nil, err
+	}
+	all := []manifest{}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var m manifest
+		if err = json.Unmarshal(data, &m); err != nil {
+			return nil, err
+		}
+		all = append(all, m)
+	}
+	return all, nil
+}
+func (a *app) changeAt(c *config) (string, error) {
+	cwd, err := canonical(a.cwd)
+	if err != nil {
+		return "", err
+	}
+	all, err := changes(c)
+	if err != nil {
+		return "", err
+	}
+	for _, m := range all {
+		dirs := []string{workspace(c, m.Branch)}
+		for _, r := range m.Repos {
+			if r.Path != "" {
+				dirs = append(dirs, r.Path)
+			}
+		}
+		for _, dir := range dirs {
+			if resolved, err := canonical(dir); err == nil {
+				dir = resolved
+			}
+			if cwd == dir || strings.HasPrefix(cwd, dir+string(filepath.Separator)) {
+				return m.Branch, nil
+			}
+		}
+	}
+	return "", usage("No change contains "+cwd+".", "Run wmm remove <branch> from anywhere, or run wmm status to list changes.")
+}

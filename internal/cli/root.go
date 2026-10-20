@@ -62,12 +62,19 @@ func newRoot(o *options) *cobra.Command {
 			return nil
 		}}
 	statusCmd.Flags().StringVar(&o.fields, "fields", "repo,state,commits", "detail columns: repo,state,commits,base,path,base_commit")
-	removeCmd := &cobra.Command{Use: "remove <branch>", Short: "Remove a change's worktrees, local branches, and window", Args: cobra.ExactArgs(1),
-		Example: "  wmm remove feat/change\n  wmm remove feat/change --keep-branch\n  wmm remove feat/change --dry-run",
-		RunE:    func(cmd *cobra.Command, args []string) error { o.command = "remove"; o.branch = args[0]; return nil }}
+	removeCmd := &cobra.Command{Use: "remove [branch]", Short: "Remove a change's worktrees, local branches, and window", Args: cobra.MaximumNArgs(1),
+		Long:    "Remove a change's worktrees, local branches, and window.\n\nWithout a branch, removes the change whose worktree or workspace contains the current directory.",
+		Example: "  wmm remove feat/change\n  wmm remove feat/change --keep-branch\n  wmm remove feat/change --dry-run\n  wmm remove -f",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			o.command = "remove"
+			if len(args) > 0 {
+				o.branch = args[0]
+			}
+			return nil
+		}}
 	removeCmd.Flags().BoolVar(&o.dryRun, "dry-run", false, "preview removal without changing files, branches, or windows")
 	removeCmd.Flags().BoolVar(&o.keepBranch, "keep-branch", false, "keep local branches and their commits")
-	removeCmd.Flags().BoolVar(&o.force, "force", false, "discard uncommitted files and unmerged commits (unless --keep-branch)")
+	removeCmd.Flags().BoolVarP(&o.force, "force", "f", false, "discard uncommitted files and unmerged commits (unless --keep-branch)")
 	root.AddCommand(initCmd, debugCmd, startCmd, reviewCmd, statusCmd, removeCmd)
 	return root
 }

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -78,6 +77,11 @@ func (a *app) dispatch(args []string) error {
 		return a.start(c, o)
 	}
 	if o.command == "remove" {
+		if o.branch == "" {
+			if o.branch, err = a.changeAt(c); err != nil {
+				return err
+			}
+		}
 		return a.remove(c, o)
 	}
 	m, err := load(c, o.branch)
@@ -222,20 +226,12 @@ func validateFields(value string) error {
 }
 func (a *app) status(c *config, o options) error {
 	if o.branch == "" {
-		paths, err := filepath.Glob(filepath.Join(c.State, "*", "manifest.json"))
+		all, err := changes(c)
 		if err != nil {
 			return err
 		}
 		rows := [][]any{}
-		for _, path := range paths {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			var m manifest
-			if err = json.Unmarshal(data, &m); err != nil {
-				return err
-			}
+		for _, m := range all {
 			rows = append(rows, []any{m.Branch, m.Phase, len(m.Repos)})
 		}
 		a.table("changes", []string{"branch", "phase", "repos"}, rows)

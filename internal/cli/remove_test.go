@@ -140,3 +140,36 @@ func TestRemoveChangeInDebugWithoutWorkmux(t *testing.T) {
 		t.Fatal(f.windows)
 	}
 }
+func TestRemoveInfersChangeFromWorkingDirectory(t *testing.T) {
+	for _, place := range []string{"worktree", "subdirectory", "workspace"} {
+		t.Run(place, func(t *testing.T) {
+			f := newFixture(t)
+			m := f.start()
+			switch place {
+			case "worktree":
+				f.a.cwd = m.Repos[1].Path
+			case "subdirectory":
+				dir := filepath.Join(m.Repos[1].Path, "nested")
+				if err := os.MkdirAll(dir, 0755); err != nil {
+					t.Fatal(err)
+				}
+				f.a.cwd = dir
+			case "workspace":
+				f.a.cwd = workspace(f.config(), m.Branch)
+			}
+			f.mustCLI("remove", "-f")
+			if exists(workspace(f.config(), m.Branch)) {
+				t.Fatal("workspace remains")
+			}
+		})
+	}
+}
+
+func TestRemoveWithoutBranchOutsideAChangeRemovesNothing(t *testing.T) {
+	f := newFixture(t)
+	m := f.start()
+	code, out := f.cli("remove")
+	if code == 0 || !strings.Contains(out, "No change contains") || f.count("workmux", "remove") != 0 || !exists(workspace(f.config(), m.Branch)) {
+		t.Fatal(code, out)
+	}
+}

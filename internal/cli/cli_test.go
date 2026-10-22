@@ -146,6 +146,9 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 		}
 		switch args[1] {
 		case "display-message":
+			if args[len(args)-1] == "#{window_id}" {
+				return f.panes[flagValue(args, "-t")], nil
+			}
 			return "current", nil
 		case "list-panes":
 			var out strings.Builder

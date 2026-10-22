@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func Run(args []string, out, diagnostic io.Writer) int {
@@ -64,7 +65,11 @@ func (a *app) dispatch(args []string) error {
 		return a.status(c, o)
 	}
 	if !o.dryRun {
-		unlock, err := lock(c)
+		acquire := lock
+		if os.Getenv(detachedRemovalEnv) != "" {
+			acquire = func(c *config) (func(), error) { return lockPatiently(c, 10*time.Second) }
+		}
+		unlock, err := acquire(c)
 		if err != nil {
 			return err
 		}

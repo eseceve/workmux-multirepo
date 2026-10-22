@@ -4,8 +4,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
+	"time"
 )
+
+// detachedRemovalEnv marks the copy of wmm remove relaunched on the tmux server, so it
+// finishes the cleanup instead of handing it off again.
+const detachedRemovalEnv = "WMM_DETACHED_REMOVE"
 
 func (a *app) remove(c *config, o options) error {
 	dir := workspace(c, o.branch)
@@ -38,6 +44,11 @@ func (a *app) remove(c *config, o options) error {
 		a.table("repos", []string{"repo", "path"}, rows)
 		a.scalar("keep_branch", o.keepBranch)
 		return nil
+	}
+	// workmux remove closes the change window, which would end a wmm running inside it
+	// before it deletes branches and the workspace.
+	if os.Getenv(detachedRemovalEnv) == "" && a.insideChangeWindow(m.Session, dir) {
+		return a.removeInBackground(c, m.Branch, o)
 	}
 	if len(m.Repos) > 0 {
 		if err := a.prerequisites(c); err != nil {
@@ -198,4 +209,61 @@ func (a *app) checkRemovalWorkspace(dir string, m *manifest, force bool) error {
 		}
 	}
 	return nil
+}
+
+func (a *app) insideChangeWindow(session, dir string) bool {
+	pane := os.Getenv("TMUX_PANE")
+	if pane == "" {
+		return false
+	}
+	current, err := a.run("", "tmux", "display-message", "-p", "-t", pane, "#{window_id}")
+	if err != nil {
+		return false
+	}
+	for _, id := range a.windows(session, dir) {
+		if id == strings.TrimSpace(current) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *app) removeInBackground(c *config, branch string, o options) error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	log := filepath.Join(c.State, "remove.log")
+	args := []string{detachedRemovalEnv + "=1", shellQuote(self), "remove", shellQuote(branch), "--config", shellQuote(c.Path)}
+	if o.force {
+		args = append(args, "--force")
+	}
+	if o.keepBranch {
+		args = append(args, "--keep-branch")
+	}
+	script := strings.Join(args, " ") + " >> " + shellQuote(log) + " 2>&1 || tmux display-message " + shellQuote("wmm remove "+branch+" failed; see "+log)
+	if _, err := a.command(c.Root, "tmux", "run-shell", "-b", "-c", c.Root, script); err != nil {
+		return err
+	}
+	a.scalar("branch", branch)
+	a.scalar("state", "removing in background")
+	a.scalar("log", log)
+	return nil
+}
+
+// lockPatiently waits for the lock that the wmm which relaunched this removal still holds
+// while it exits.
+func lockPatiently(c *config, wait time.Duration) (func(), error) {
+	deadline := time.Now().Add(wait)
+	for {
+		unlock, err := lock(c)
+		if err == nil || time.Now().After(deadline) {
+			return unlock, err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }

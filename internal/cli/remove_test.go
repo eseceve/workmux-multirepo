@@ -4,8 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRemoveWholeChangeAndRepeat(t *testing.T) {
@@ -171,5 +173,87 @@ func TestRemoveWithoutBranchOutsideAChangeRemovesNothing(t *testing.T) {
 	code, out := f.cli("remove")
 	if code == 0 || !strings.Contains(out, "No change contains") || f.count("workmux", "remove") != 0 || !exists(workspace(f.config(), m.Branch)) {
 		t.Fatal(code, out)
+	}
+}
+
+func (f *fixture) changeWindowPane(branch string) string {
+	f.t.Helper()
+	dir := workspace(f.config(), branch)
+	for _, pane := range keys(f.panes) {
+		if f.owners[f.panes[pane]] == dir {
+			return pane
+		}
+	}
+	f.t.Fatal("no pane in the change window")
+	return ""
+}
+
+func (f *fixture) lastCallOf(command, sub string) []string {
+	for i := len(f.calls) - 1; i >= 0; i-- {
+		if len(f.calls[i]) > 1 && f.calls[i][0] == command && f.calls[i][1] == sub {
+			return f.calls[i]
+		}
+	}
+	return nil
+}
+
+func TestRemoveFromChangeWindowFinishesInBackground(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("start", "feat/shared", "api", "web")
+	t.Setenv("TMUX_PANE", f.changeWindowPane("feat/shared"))
+	phase, killed := f.manifest().Phase, f.count("tmux", "kill-window")
+	out := f.mustCLI("remove", "feat/shared", "--force")
+	if f.count("workmux", "remove") != 0 || f.count("tmux", "kill-window") != killed || f.manifest().Phase != phase {
+		t.Fatal("removal ran inside the window it closes", out)
+	}
+	shell := f.lastCallOf("tmux", "run-shell")
+	if !slices.Contains(shell, "-b") {
+		t.Fatal("removal was not handed to the tmux server", shell)
+	}
+	command := shell[len(shell)-1]
+	for _, part := range []string{detachedRemovalEnv + "=1", "remove 'feat/shared'", "--config '" + f.config().Path + "'", "--force"} {
+		if !strings.Contains(command, part) {
+			t.Fatal("background command misses "+part, command)
+		}
+	}
+	if !strings.Contains(out, "removing in background") {
+		t.Fatal(out)
+	}
+}
+
+func TestRemoveRelaunchedFromChangeWindowRemovesEverything(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("start", "feat/shared", "api", "web")
+	t.Setenv("TMUX_PANE", f.changeWindowPane("feat/shared"))
+	t.Setenv(detachedRemovalEnv, "1")
+	f.mustCLI("remove", "feat/shared", "--force")
+	if f.count("tmux", "run-shell") != 0 || exists(workspace(f.config(), "feat/shared")) || len(f.windows) != 0 {
+		t.Fatal("relaunched removal did not finish", f.windows)
+	}
+}
+
+func TestRemoveFromAnotherWindowStaysInForeground(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("start", "feat/shared", "api", "web")
+	f.panes["%99.0"] = "@99"
+	t.Setenv("TMUX_PANE", "%99.0")
+	f.mustCLI("remove", "feat/shared", "--force")
+	if f.count("tmux", "run-shell") != 0 || exists(workspace(f.config(), "feat/shared")) {
+		t.Fatal("removal from an unrelated window did not run in place")
+	}
+}
+
+func TestRelaunchedRemovalWaitsForTheLauncherLock(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("start", "feat/shared", "api", "web", "--no-open")
+	unlock, err := lock(f.config())
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.AfterFunc(200*time.Millisecond, unlock)
+	t.Setenv(detachedRemovalEnv, "1")
+	f.mustCLI("remove", "feat/shared", "--force")
+	if exists(workspace(f.config(), "feat/shared")) {
+		t.Fatal("relaunched removal gave up on the lock")
 	}
 }

@@ -81,6 +81,9 @@ func (a *app) dispatch(args []string) error {
 	if o.command == "start" {
 		return a.start(c, o)
 	}
+	if o.command == "prune" {
+		return a.prune(c, o)
+	}
 	if o.command == "remove" {
 		if o.branch == "" {
 			if o.branch, err = a.changeAt(c); err != nil {

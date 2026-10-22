@@ -75,7 +75,14 @@ func newRoot(o *options) *cobra.Command {
 	removeCmd.Flags().BoolVar(&o.dryRun, "dry-run", false, "preview removal without changing files, branches, or windows")
 	removeCmd.Flags().BoolVar(&o.keepBranch, "keep-branch", false, "keep local branches and their commits")
 	removeCmd.Flags().BoolVarP(&o.force, "force", "f", false, "discard uncommitted files and unmerged commits (unless --keep-branch)")
-	root.AddCommand(initCmd, debugCmd, startCmd, reviewCmd, statusCmd, removeCmd)
+	pruneCmd := &cobra.Command{Use: "prune", Short: "Remove abandoned changes: incomplete removals and changes whose worktrees are gone", Args: cobra.NoArgs,
+		Long:    "Remove abandoned changes: those whose removal stopped partway, and those whose worktrees no longer exist.\n\nLive changes and changes in debug are left alone. A change that would lose files or unmerged commits is kept unless --force is given.",
+		Example: "  wmm prune --dry-run\n  wmm prune\n  wmm prune --force",
+		RunE:    func(cmd *cobra.Command, args []string) error { o.command = "prune"; return nil }}
+	pruneCmd.Flags().BoolVar(&o.dryRun, "dry-run", false, "list abandoned changes without removing them")
+	pruneCmd.Flags().BoolVar(&o.keepBranch, "keep-branch", false, "keep local branches and their commits")
+	pruneCmd.Flags().BoolVarP(&o.force, "force", "f", false, "discard uncommitted files, extra workspace files, and unmerged commits (unless --keep-branch)")
+	root.AddCommand(initCmd, debugCmd, startCmd, reviewCmd, statusCmd, removeCmd, pruneCmd)
 	return root
 }
 

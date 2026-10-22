@@ -28,6 +28,10 @@ _Avoid_: task, feature, workspace
 The stage a change is in: debug, implementation, or review.
 _Avoid_: status, state
 
+**Abandoned change**:
+A change whose removal stopped partway, or whose worktrees no longer exist; `wmm prune` removes it.
+_Avoid_: orphan, stale change
+
 **Debug**:
 The phase in which a change is investigated from the root directory, before any worktree exists.
 _Avoid_: investigation, triage

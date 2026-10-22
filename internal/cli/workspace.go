@@ -186,29 +186,60 @@ func (a *app) fetchBases(records []repoState) error {
 	}
 	return nil
 }
-func (a *app) worktreeFor(r repoState, branch string) (string, error) {
-	text, err := a.git(r.Source, "worktree", "list", "--porcelain", "-z")
+
+type worktree struct{ path, ref string }
+
+func (a *app) worktrees(source string) ([]worktree, error) {
+	text, err := a.git(source, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
+	all := []worktree{}
 	for _, entry := range strings.Split(text, "\x00\x00") {
-		var path, ref string
+		var w worktree
 		for _, line := range strings.Split(entry, "\x00") {
 			key, value, ok := strings.Cut(line, " ")
 			if ok {
 				if key == "worktree" {
-					path = value
+					w.path = value
 				}
 				if key == "branch" {
-					ref = value
+					w.ref = value
 				}
 			}
 		}
-		if ref == "refs/heads/"+branch {
-			return path, nil
+		all = append(all, w)
+	}
+	return all, nil
+}
+func (a *app) worktreeFor(r repoState, branch string) (string, error) {
+	all, err := a.worktrees(r.Source)
+	if err != nil {
+		return "", err
+	}
+	for _, w := range all {
+		if w.ref == "refs/heads/"+branch {
+			return w.path, nil
 		}
 	}
 	return "", nil
+}
+
+func (a *app) registered(r repoState) (bool, error) {
+	all, err := a.worktrees(r.Source)
+	if err != nil {
+		return false, err
+	}
+	recorded, err := canonical(r.Path)
+	if err != nil {
+		return false, err
+	}
+	for _, w := range all {
+		if path, err := canonical(w.path); err == nil && path == recorded {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 func (a *app) verify(r repoState, branch string) error {
 	actual, err := a.worktreeFor(r, branch)

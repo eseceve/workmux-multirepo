@@ -192,6 +192,18 @@ Removal works in any phase, including a change still in debug and after an incom
 
 If removal fails partway through, repeat the same command to finish. Its manifest records progress until cleanup completes; `start` and `review` are blocked while removal is incomplete. Repeating removal after completion succeeds without changes.
 
+A worktree directory that Git no longer registers (for example, after its administrative files were deleted) cannot be checked for unsaved files, so `remove` refuses it unless `--force` is given.
+
+## Prune abandoned changes
+
+```sh
+wmm prune --dry-run
+wmm prune
+wmm prune --force
+```
+
+`prune` removes every abandoned change: one whose removal stopped partway, or one whose worktrees no longer exist. Live changes and changes in debug are left alone. Each abandoned change goes through the same checks as `remove`, so one that would lose files, extra workspace files, or unmerged commits is kept and reported; `--force` discards them, and `--keep-branch` keeps local branches. Commits merged by squash are not ancestors of the base, so their branches also need `--force`. Run it from outside the abandoned changes' windows.
+
 ## Failure and cleanup behavior
 
 Operations are serialized per root directory. If provisioning stops, fix the error and repeat the original command; completed repositories are preserved and skipped. Intact incomplete worktrees are recreated on retry so setup hooks run again. Worktrees with changes are preserved for inspection. Use `wmm remove <branch>` to abandon the entire change.

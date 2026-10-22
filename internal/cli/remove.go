@@ -24,14 +24,8 @@ func (a *app) remove(c *config, o options) error {
 	if err != nil {
 		return err
 	}
-	if err := a.checkRemovalWorkspace(dir, m, o.force); err != nil {
+	if err := a.checkRemoval(c, dir, m, o); err != nil {
 		return err
-	}
-	// Validate the whole group before closing windows or removing any repo.
-	for i := range m.Repos {
-		if err := a.checkRemovalRepo(c, m, &m.Repos[i], o); err != nil {
-			return err
-		}
 	}
 	if o.dryRun {
 		a.scalar("branch", m.Branch)
@@ -50,6 +44,29 @@ func (a *app) remove(c *config, o options) error {
 	if os.Getenv(detachedRemovalEnv) == "" && a.insideChangeWindow(m.Session, dir) {
 		return a.removeInBackground(c, m.Branch, o)
 	}
+	if err := a.removeChecked(c, dir, m, o); err != nil {
+		return err
+	}
+	a.scalar("branch", m.Branch)
+	a.scalar("state", "removed")
+	a.scalar("kept_branches", o.keepBranch)
+	return nil
+}
+
+// checkRemoval validates the whole group before closing windows or removing any repo.
+func (a *app) checkRemoval(c *config, dir string, m *manifest, o options) error {
+	if err := a.checkRemovalWorkspace(dir, m, o.force); err != nil {
+		return err
+	}
+	for i := range m.Repos {
+		if err := a.checkRemovalRepo(c, m, &m.Repos[i], o); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *app) removeChecked(c *config, dir string, m *manifest, o options) error {
 	if len(m.Repos) > 0 {
 		if err := a.prerequisites(c); err != nil {
 			return err
@@ -100,6 +117,11 @@ func (a *app) remove(c *config, o options) error {
 			if remaining != "" {
 				return fail("Worktree removal is still pending for "+r.Alias, "Repeat the same wmm remove command to finish cleanup.")
 			}
+		} else if r.Path != "" && exists(r.Path) {
+			// checkRemovalRepo only lets an unregistered worktree through with --force.
+			if err := os.RemoveAll(r.Path); err != nil {
+				return err
+			}
 		}
 		if !o.keepBranch {
 			if _, err := a.tryGit(r.Source, "show-ref", "--verify", "--quiet", "refs/heads/"+m.Branch); err == nil {
@@ -121,13 +143,7 @@ func (a *app) remove(c *config, o options) error {
 		return err
 	}
 	// RemoveAll unlinks repository symlinks rather than following them.
-	if err := os.RemoveAll(dir); err != nil {
-		return err
-	}
-	a.scalar("branch", m.Branch)
-	a.scalar("state", "removed")
-	a.scalar("kept_branches", o.keepBranch)
-	return nil
+	return os.RemoveAll(dir)
 }
 
 func (a *app) checkRemovalRepo(c *config, m *manifest, r *repoState, o options) error {
@@ -162,7 +178,19 @@ func (a *app) checkRemovalRepo(c *config, m *manifest, r *repoState, o options) 
 			}
 		}
 	} else if r.Path != "" && exists(r.Path) {
-		return fail("Recorded worktree changed in "+r.Alias, "Restore its original branch before removing this change.")
+		registered, err := a.registered(*r)
+		if err != nil {
+			return err
+		}
+		if registered {
+			return fail("Recorded worktree changed in "+r.Alias, "Restore its original branch before removing this change.")
+		}
+		if filepath.Base(r.Path) != r.Handle {
+			return fail("Unrecognized worktree for "+r.Alias, "Inspect wmm status for this branch; no unrelated worktree will be removed.")
+		}
+		if !o.force {
+			return fail("Files would be lost in "+r.Alias+": its worktree is no longer registered in Git", "Save the files first, or repeat with --force to discard them.")
+		}
 	}
 	if !o.keepBranch && !o.force {
 		if _, err := a.tryGit(r.Source, "show-ref", "--verify", "--quiet", "refs/heads/"+m.Branch); err == nil {

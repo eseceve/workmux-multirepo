@@ -830,7 +830,7 @@ func TestSingleRepositoryBuilderRunsInItsWorktree(t *testing.T) {
 	if opened == nil || opened[2] != m.Repos[0].Handle || f.windows["build"] == "" {
 		t.Fatal(opened, f.windows)
 	}
-	if renamed[len(renamed)-1] != " api:feat/shared" {
+	if renamed[len(renamed)-1] != "api "+prIcon+" feat/shared" {
 		t.Fatal(renamed)
 	}
 }

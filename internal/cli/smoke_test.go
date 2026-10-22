@@ -271,7 +271,7 @@ func TestRealWorkmuxSmoke(t *testing.T) {
 		t.Fatal("builder did not replace the debug window", f.a.windows(debugged.Session))
 	}
 	name, _ := execute("", "tmux", "display-message", "-p", "-t", builder, "#{window_name}")
-	if strings.TrimSpace(name) != prIcon+" api:fix/debugged" {
+	if strings.TrimSpace(name) != "api "+prIcon+" fix/debugged" {
 		t.Fatalf("single-repository builder named %q", name)
 	}
 	f.mustCLI("review", "fix/debugged")

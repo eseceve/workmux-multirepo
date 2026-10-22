@@ -102,7 +102,7 @@ These repository entries are **symlinks**; workmux retains ownership of the real
 
 Workmux needs a Git repository to open an agent. On the first builder launch, wmm initializes a local coordination repository here with one empty commit and no remote. Code changes and commits belong in the individual worktrees, not this internal repository.
 
-With one repository, the builder runs inside that repository's worktree and its window is named ` web:feat/checkout`. With several, it runs in the workspace and its window is named ` feat/checkout`. The pane layout is workmux's; for example, add `percentage: 40` to the second pane in your workmux `panes:` for a 60/40 split between the agent and a shell.
+With one repository, the builder runs inside that repository's worktree and its window is named `web  feat/checkout`. With several, it runs in the workspace and its window is named ` feat/checkout`. The pane layout is workmux's; for example, add `percentage: 40` to the second pane in your workmux `panes:` for a 60/40 split between the agent and a shell.
 
 Inside tmux, wmm opens the builder window in the current session, in place of the change's debug or review window when one is open. tmux metadata identifies each change so multiple changes can share a session. Outside tmux, wmm creates a dedicated session and prints an attach command. Existing windows in another session must be closed before reopening the builder in the current session.
 

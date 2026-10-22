@@ -177,7 +177,7 @@ func (a *app) openBuilder(c *config, m *manifest, prompt string) error {
 	owner := workspace(c, m.Branch)
 	dir, handle, name := owner, filepath.Base(owner), prIcon+" "+m.Branch
 	if len(m.Repos) == 1 {
-		dir, handle, name = m.Repos[0].Source, m.Repos[0].Handle, prIcon+" "+m.Repos[0].Alias+":"+m.Branch
+		dir, handle, name = m.Repos[0].Source, m.Repos[0].Handle, m.Repos[0].Alias+" "+prIcon+" "+m.Branch
 	}
 	active := a.managedWindows(c, m)
 	if active["build"] != "" {

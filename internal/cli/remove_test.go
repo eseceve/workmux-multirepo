@@ -268,3 +268,18 @@ func TestRelaunchedRemovalWaitsForTheLauncherLock(t *testing.T) {
 		t.Fatal("relaunched removal gave up on the lock")
 	}
 }
+
+func TestRemoveDiscardsPromptFilesFromEarlierVersions(t *testing.T) {
+	f := newFixture(t)
+	m := f.start()
+	dir := workspace(f.config(), m.Branch)
+	for _, name := range []string{"BRIEF.md", "build-prompt.md", "review-api-prompt.md", "review-web-prompt.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("generated"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.mustCLI("remove", m.Branch)
+	if exists(dir) {
+		t.Fatal("workspace remains")
+	}
+}

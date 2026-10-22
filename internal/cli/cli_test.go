@@ -32,6 +32,7 @@ type fixture struct {
 	failAlias       string
 	failAfterCreate bool
 	failRemoveAlias string
+	deferRemoval    bool
 }
 
 func gitTest(t *testing.T, cwd string, args ...string) string {
@@ -124,6 +125,10 @@ func (f *fixture) run(cwd string, args ...string) (string, error) {
 		}
 		if alias == f.failRemoveAlias {
 			return "", errors.New("simulated removal failure")
+		}
+		// workmux defers the removal until the window it believes it runs in closes.
+		if f.deferRemoval && len(f.order) > 0 {
+			return "", nil
 		}
 		gitArgs := []string{"git", "worktree", "remove"}
 		if slices.Contains(args, "--force") {

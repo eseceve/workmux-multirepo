@@ -232,6 +232,17 @@ func TestRemoveRelaunchedFromChangeWindowRemovesEverything(t *testing.T) {
 	}
 }
 
+func TestRelaunchedRemovalClosesTheChangeWindowBeforeWorkmuxCanDefer(t *testing.T) {
+	f := newFixture(t)
+	f.mustCLI("start", "feat/shared", "api", "web")
+	f.deferRemoval = true
+	t.Setenv(detachedRemovalEnv, "1")
+	f.mustCLI("remove", "feat/shared", "--force")
+	if exists(workspace(f.config(), "feat/shared")) || len(f.windows) != 0 {
+		t.Fatal("removal stopped while workmux waited for the change window to close", f.windows)
+	}
+}
+
 func TestRemoveFromAnotherWindowStaysInForeground(t *testing.T) {
 	f := newFixture(t)
 	f.mustCLI("start", "feat/shared", "api", "web")

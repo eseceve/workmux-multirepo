@@ -64,6 +64,14 @@ func (a *app) remove(c *config, o options) error {
 	if err := save(c, m); err != nil {
 		return err
 	}
+	// Strict workspace ownership prevents closing unrelated windows, including
+	// user-created windows in a dedicated wmm session. Closing them first keeps workmux
+	// from mistaking the focused change window for its own and deferring the removal.
+	for _, id := range a.windows(m.Session, dir) {
+		if _, err := a.command(c.Root, "tmux", "kill-window", "-t", id); err != nil {
+			return err
+		}
+	}
 	for i := range m.Repos {
 		r := &m.Repos[i]
 		if r.Removed {
@@ -106,13 +114,6 @@ func (a *app) remove(c *config, o options) error {
 		}
 		r.Removed = true
 		if err := save(c, m); err != nil {
-			return err
-		}
-	}
-	// Strict workspace ownership prevents closing unrelated windows, including
-	// user-created windows in a dedicated wmm session.
-	for _, id := range a.windows(m.Session, dir) {
-		if _, err := a.command(c.Root, "tmux", "kill-window", "-t", id); err != nil {
 			return err
 		}
 	}
